@@ -43,7 +43,9 @@ CREATE INDEX IF NOT EXISTS idx_audits_biz ON audits(business_id, run_at DESC);
 CREATE TABLE IF NOT EXISTS pipeline (
     business_id      INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
     stage            TEXT DEFAULT 'nuevo',
-    -- nuevo | maqueta | contactado | reunion | propuesta | ganado | perdido | descartado
+    -- Avance:  nuevo | en_curso | maqueta | contactado | reunion | propuesta | ganado
+    -- Pausa:   aparcado  (con next_action_date = cuándo retomarlo)
+    -- Salidas: perdido | descartado
     mockup_path      TEXT,
     mockup_built_at  TEXT,
     contact_name     TEXT,

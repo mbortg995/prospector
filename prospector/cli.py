@@ -30,17 +30,25 @@ MOCKUPS = Path(
     os.environ.get("PROSPECTOR_MAQUETAS")
     or Path(__file__).resolve().parent.parent / "maquetas"
 ).expanduser()
-ETAPAS = ["nuevo", "maqueta", "contactado", "reunion", "propuesta",
-          "ganado", "perdido", "descartado"]
-# El embudo solo avanza. `perdido` y `descartado` no son un paso más: son
-# salidas, y mandan siempre.
-AVANCE = ["nuevo", "maqueta", "contactado", "reunion", "propuesta", "ganado"]
+# El embudo solo avanza: `en_curso` es "lo he cogido yo", antes incluso de
+# llamar. `aparcado` no es un paso atrás sino una pausa, y `perdido` y
+# `descartado` no son un paso más: son salidas, y mandan siempre.
+AVANCE = ["nuevo", "en_curso", "maqueta", "contactado", "reunion",
+          "propuesta", "ganado"]
+PAUSA = {"aparcado"}
 TERMINALES = {"perdido", "descartado"}
+ETAPAS = AVANCE + ["aparcado", "perdido", "descartado"]
+# Las que significan "esto está en marcha", que es lo que se ve en Comercial.
+EN_JUEGO = ["en_curso", "maqueta", "contactado", "reunion", "propuesta", "ganado"]
 
 
 def etapa_resultante(actual: str, propuesta: str) -> str:
-    """Un 'no contesta' después de una cita no puede devolverte a 'contactado'."""
-    if propuesta in TERMINALES or actual in TERMINALES:
+    """Un 'no contesta' después de una cita no puede devolverte a 'contactado'.
+
+    Retomar un aparcado sí puede llevarlo a cualquier etapa: estaba en pausa,
+    no atrás.
+    """
+    if propuesta in TERMINALES or actual in TERMINALES or actual in PAUSA:
         return propuesta
     if actual not in AVANCE or propuesta not in AVANCE:
         return propuesta
@@ -169,6 +177,19 @@ WHERE b.is_chain = 0
   AND NOT EXISTS (SELECT 1 FROM exclusions e
                   WHERE e.key = 'osm:' || b.osm_type || '/' || b.osm_id)
 """
+
+
+def cmd_etapa(a):
+    """Mover un negocio de etapa a mano, sin registrar una interacción."""
+    con = db.connect()
+    b = negocio_o_salir(con, a.id)
+    extra = {}
+    if a.etapa == "aparcado":
+        extra = {"next_action": a.motivo or "Retomar", "next_action_date": a.fecha}
+    db.set_stage(con, a.id, a.etapa, **extra)
+    con.commit()
+    print(f"#{a.id} {b['name']} → {a.etapa}"
+          + (f" (retomar {a.fecha})" if a.etapa == "aparcado" and a.fecha else ""))
 
 
 def cmd_cerrados(a):
@@ -528,6 +549,13 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("etapa", help="mover un negocio de etapa")
+    p.add_argument("id", type=int)
+    p.add_argument("etapa", choices=ETAPAS)
+    p.add_argument("--fecha", help="cuándo retomarlo, si se aparca")
+    p.add_argument("--motivo")
+    p.set_defaults(f=cmd_etapa)
 
     p = sub.add_parser("cerrados", help="sacar del pipeline los negocios cerrados")
     p.add_argument("--simular", action="store_true", help="enseñarlos sin tocar nada")

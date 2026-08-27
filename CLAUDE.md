@@ -39,9 +39,10 @@ Funciona y está probado con datos simulados:
   60% de parecido de nombre) porque un teléfono mal puesto hace que llames a
   otro negocio. Todo se cachea en `place_lookups`, fallos incluidos.
 - `panel.py` + `panel.html` — panel local en 127.0.0.1, solo stdlib (`http.server`),
-  sin framework ni CDN. Lista blanca de tareas lanzables y una cada vez.
-- `cli.py` — comandos: `init discover enriquecer cerrados normalizar audit panel clave cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 270 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+  sin framework ni CDN. Tres pestañas: Cola, Comercial (leads en marcha) y
+  Archivo. Lista blanca de tareas lanzables y de etapas escribibles.
+- `cli.py` — comandos: `init discover enriquecer cerrados normalizar audit etapa panel clave cola ficha brief maqueta log excluir embudo export`
+- `tests/` — 286 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519

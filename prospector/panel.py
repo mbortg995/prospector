@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import db
+from . import cli, db
 
 PLANTILLA = Path(__file__).resolve().parent / "panel.html"
 
@@ -90,6 +90,29 @@ def _cola(con, track=None, municipio=None, n=100):
     return [dict(r) for r in con.execute(q, p)]
 
 
+SQL_LEADS = """
+SELECT b.id, b.name, b.category, b.municipality, b.dist_km, b.phone, b.website,
+       p.stage, p.next_action, p.next_action_date, p.mockup_path, p.updated_at,
+       a.track, a.score,
+       (SELECT COUNT(*) FROM interactions i WHERE i.business_id = b.id) contactos,
+       (SELECT MAX(happened_at) FROM interactions i WHERE i.business_id = b.id) ultimo
+FROM businesses b
+JOIN pipeline p ON p.business_id = b.id
+LEFT JOIN audits a ON a.id = (
+    SELECT id FROM audits WHERE business_id = b.id
+    ORDER BY run_at DESC, id DESC LIMIT 1)
+WHERE p.stage IN ({marcas})
+"""
+
+
+def _leads(con, etapas):
+    """Todo lo que está en marcha. La cola solo enseña los `nuevo`, así que
+    sin esto un negocio desaparece del panel en cuanto lo tocas."""
+    q = SQL_LEADS.format(marcas=",".join("?" * len(etapas)))
+    q += " ORDER BY p.next_action_date IS NULL, p.next_action_date, a.score DESC"
+    return [dict(r) for r in con.execute(q, etapas)]
+
+
 def _ficha(con, bid):
     b = con.execute("SELECT * FROM businesses WHERE id=?", (bid,)).fetchone()
     if not b:
@@ -111,12 +134,12 @@ def _ficha(con, bid):
 
 
 def _embudo(con):
-    etapas = ["nuevo", "maqueta", "contactado", "reunion", "propuesta",
-              "ganado", "perdido", "descartado"]
+    # Las etapas salen del CLI: tenerlas copiadas aquí ya hizo que `en_curso`
+    # y `aparcado` no aparecieran en el embudo del panel.
     return {
         "etapas": [{"etapa": e, "n": con.execute(
             "SELECT COUNT(*) c FROM pipeline WHERE stage=?", (e,)).fetchone()["c"]}
-            for e in etapas],
+            for e in cli.ETAPAS],
         "carriles": [dict(r) for r in con.execute(
             "SELECT track, COUNT(*) n, ROUND(AVG(score)) media FROM v_cola "
             "GROUP BY track ORDER BY n DESC")],
@@ -170,6 +193,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/cola":
                 return self._responder(_cola(
                     con, uno("track"), uno("municipio"), int(uno("n", 100))))
+            if u.path == "/api/leads":
+                return self._responder(_leads(con, list(cli.EN_JUEGO)))
+            if u.path == "/api/archivo":
+                return self._responder(_leads(
+                    con, ["aparcado", "perdido", "descartado"]))
             if u.path == "/api/embudo":
                 return self._responder(_embudo(con))
             if u.path == "/api/municipios":
@@ -207,7 +235,6 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/log":
                 db.log_interaction(con, bid, datos["kind"], datos["outcome"],
                                    datos.get("notes") or "")
-                from .cli import etapa_resultante
                 etapa = {"cita": "reunion", "interesado": "contactado",
                          "no_interesado": "perdido", "no_contesta": "contactado",
                          "volver_a_llamar": "contactado"}.get(datos["outcome"])
@@ -219,7 +246,28 @@ class Handler(BaseHTTPRequestHandler):
                         extra["next_action"] = datos["next"]
                     if datos.get("fecha"):
                         extra["next_action_date"] = datos["fecha"]
-                    db.set_stage(con, bid, etapa_resultante(actual, etapa), **extra)
+                    db.set_stage(con, bid, cli.etapa_resultante(actual, etapa), **extra)
+                con.commit()
+                return self._responder(_ficha(con, bid))
+
+            if u.path == "/api/etapa":
+                etapa = datos.get("etapa")
+                # Lista blanca: el navegador no escribe cualquier cosa en la BD.
+                if etapa not in cli.ETAPAS:
+                    return self._responder({"error": f"etapa desconocida: {etapa}"}, 400)
+                extra = {}
+                if etapa == "aparcado":
+                    extra = {"next_action": datos.get("motivo") or "Retomar",
+                             "next_action_date": datos.get("fecha")}
+                elif etapa in cli.TERMINALES:
+                    extra = {"next_action": None, "next_action_date": None}
+                db.set_stage(con, bid, etapa, **extra)
+                if etapa == "descartado":
+                    b = con.execute("SELECT osm_type, osm_id FROM businesses "
+                                    "WHERE id=?", (bid,)).fetchone()
+                    con.execute("INSERT OR REPLACE INTO exclusions VALUES (?,?,?)",
+                                (f"osm:{b['osm_type']}/{b['osm_id']}",
+                                 datos.get("motivo") or "no molestar", db.now()))
                 con.commit()
                 return self._responder(_ficha(con, bid))
 

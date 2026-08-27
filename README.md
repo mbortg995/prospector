@@ -29,10 +29,16 @@ La BD se crea en la raíz del proyecto; `PROSPECTOR_DB` la mueve a otro sitio.
 prospector panel
 ```
 
-Abre el navegador en `http://127.0.0.1:8765`. Desde ahí: la cola filtrable por
-carril y municipio, la ficha de cada negocio con sus señales, registrar
-llamadas y visitas, marcar maquetas, excluir, y lanzar `audit` y `enriquecer`
-viendo su salida en vivo.
+Abre el navegador en `http://127.0.0.1:8765`. Tres pestañas:
+
+| Pestaña | Qué hay |
+|---|---|
+| **Cola** | Lo que no has tocado todavía, filtrable por carril y municipio. Cada fila trae *Tratando*, *Aparcar* y *Descartar*. |
+| **Comercial** | Los leads en marcha, en columnas por etapa. Lo que vence hoy sale marcado. |
+| **Archivo** | Aparcados (con la fecha para retomarlos) y cerrados, con botón para devolverlos. |
+
+Más la ficha del negocio con sus señales, registrar llamadas y visitas, y
+lanzar `audit` y `enriquecer` viendo su salida en vivo.
 
 Escucha **solo en 127.0.0.1**: la BD es el estado comercial entero y no tiene
 por qué asomarse a la red. Los botones solo pueden lanzar `audit` y
@@ -80,6 +86,19 @@ python3 -m prospector.cli excluir 51 --reason "pidió no volver a llamar"
 # 8. Estado
 python3 -m prospector.cli embudo
 ```
+
+## Las etapas
+
+```
+nuevo → en_curso → maqueta → contactado → reunion → propuesta → ganado
+```
+
+Solo se avanza: un «no contesta» después de una cita no te devuelve a
+`contactado`. Aparte quedan `aparcado` —una pausa, con la fecha en que quieres
+retomarlo— y las dos salidas, `perdido` y `descartado`. Desde un aparcado se
+puede ir a cualquier etapa: estaba en pausa, no atrás.
+
+`prospector etapa <id> <etapa> [--fecha] [--motivo]` hace lo mismo desde consola.
 
 ## Los cuatro carriles
 
