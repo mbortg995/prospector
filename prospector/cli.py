@@ -14,6 +14,10 @@ from . import db
 from .audit import auditar
 from .discover import COMARCA, LA_POBLA, descargar, descargar_comarca, parse_overpass
 
+CACHE = Path(
+    os.environ.get("PROSPECTOR_CACHE")
+    or Path(__file__).resolve().parent.parent / ".cache"
+).expanduser()
 MOCKUPS = Path(
     os.environ.get("PROSPECTOR_MAQUETAS")
     or Path(__file__).resolve().parent.parent / "maquetas"
@@ -94,8 +98,9 @@ def cmd_discover(a):
             print(f"  crudo guardado en {a.guardar_json}", file=sys.stderr)
     else:
         print(f"Censando «{a.comarca}» municipio a municipio...", file=sys.stderr)
-        datos = descargar_comarca(a.comarca, espera=a.espera, aviso=aviso,
-                                  solo=a.municipios)
+        datos = descargar_comarca(
+            a.comarca, espera=a.espera, aviso=aviso, solo=a.municipios,
+            cache=CACHE / "municipios.json", refrescar=a.refrescar_municipios)
         if datos.get("_fallidos"):
             print(f"  reintenta con: --municipios {' '.join(datos['_fallidos'])}",
                   file=sys.stderr)
@@ -297,6 +302,8 @@ def main():
                    help="ámbito por defecto; OSM la tiene como relación propia")
     p.add_argument("--municipios", nargs="+", metavar="NOMBRE",
                    help="censar solo estos, para reintentar los que fallaron")
+    p.add_argument("--refrescar-municipios", action="store_true",
+                   help="volver a preguntar a OSM qué municipios tiene la comarca")
     p.add_argument("--radius", type=int,
                    help="modo círculo en metros, en lugar de por comarca")
     p.add_argument("--lat", type=float, default=LA_POBLA[0],

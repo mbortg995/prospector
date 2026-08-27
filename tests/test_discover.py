@@ -361,11 +361,21 @@ class TestMunicipios:
     def test_pregunta_a_osm_en_vez_de_codificarlos(self, monkeypatch):
         from prospector import discover
         monkeypatch.setattr(discover, "_consulta", lambda q, **k: {"elements": [
-            {"tags": {"name": "Llíria"}},
-            {"tags": {"name": "Benaguasil"}},
-            {"tags": {"sin": "nombre"}},
+            {"id": 2, "tags": {"name": "Llíria"}},
+            {"id": 1, "tags": {"name": "Benaguasil"}},
+            {"id": 3, "tags": {"sin": "nombre"}},
         ]})
-        assert discover.municipios("el Camp de Túria") == ["Benaguasil", "Llíria"]
+        assert discover.municipios("el Camp de Túria") == [
+            ("Benaguasil", discover.AREA_BASE + 1),
+            ("Llíria", discover.AREA_BASE + 2),
+        ]
+
+    def test_devuelve_id_de_area_no_solo_nombre(self, monkeypatch):
+        """Consultar por nombre casaba con homónimos de otros países."""
+        from prospector import discover
+        monkeypatch.setattr(discover, "_consulta", lambda q, **k: {
+            "elements": [{"id": 342605, "tags": {"name": "Serra"}}]})
+        assert discover.municipios()[0][1] == 3_600_342_605
 
     def test_comarca_desconocida_avisa_claro(self, monkeypatch):
         from prospector import discover
@@ -377,7 +387,7 @@ class TestMunicipios:
         from prospector import discover
         vistas = []
         monkeypatch.setattr(discover, "_consulta", lambda q, **k: vistas.append(q) or
-                            {"elements": [{"tags": {"name": "Llíria"}}]})
+                            {"elements": [{"id": 1, "tags": {"name": "Llíria"}}]})
         discover.municipios("el Camp de Túria")
         assert '"name"="el Camp de Túria"' in vistas[0]
 
@@ -386,13 +396,14 @@ class TestDescargarComarca:
     def _doble(self, monkeypatch, por_muni):
         from prospector import discover
         consultas = []
+        ids = {m: i for i, m in enumerate(por_muni, start=1)}
 
         def consulta(q, **k):
             consultas.append(q)
             for muni, els in por_muni.items():
-                if f'"name"="{muni}"' in q:
+                if f"area({discover.AREA_BASE + ids[muni]})" in q:
                     return {"elements": els}
-            return {"elements": [{"tags": {"name": m}} for m in por_muni]}
+            return {"elements": [{"id": ids[m], "tags": {"name": m}} for m in por_muni]}
 
         monkeypatch.setattr(discover, "_consulta", consulta)
         monkeypatch.setattr(discover.time, "sleep", lambda s: None)
@@ -456,15 +467,16 @@ class TestToleranciaAFallos:
 
     def _doble(self, monkeypatch, resultado_por_muni):
         from prospector import discover
-        munis = list(resultado_por_muni)
+        ids = {m: i for i, m in enumerate(resultado_por_muni, start=1)}
 
         def consulta(q, **k):
             for muni, res in resultado_por_muni.items():
-                if f'"name"="{muni}"' in q:
+                if f"area({discover.AREA_BASE + ids[muni]})" in q:
                     if isinstance(res, Exception):
                         raise res
                     return {"elements": res}
-            return {"elements": [{"tags": {"name": m}} for m in munis]}
+            return {"elements": [{"id": i, "tags": {"name": m}}
+                                 for m, i in ids.items()]}
 
         monkeypatch.setattr(discover, "_consulta", consulta)
         monkeypatch.setattr(discover.time, "sleep", lambda s: None)
@@ -490,13 +502,113 @@ class TestToleranciaAFallos:
             discover.descargar_comarca()
 
     def test_se_pueden_reintentar_solo_los_que_faltan(self, monkeypatch):
-        """Sin volver a preguntar por los que ya salieron bien."""
+        """Sin volver a bajar los municipios que ya salieron bien."""
         from prospector import discover
-        consultas = []
-        self._doble(monkeypatch, {"Bétera": [{"type": "node", "id": 9}]})
-        original = discover._consulta
-        monkeypatch.setattr(discover, "_consulta",
-                            lambda q, **k: consultas.append(q) or original(q, **k))
-        datos = discover.descargar_comarca(solo=["Bétera"])
-        assert len(consultas) == 1  # ni siquiera pide la lista de municipios
+        self._doble(monkeypatch, {
+            "Benaguasil": [{"type": "node", "id": 1}],
+            "Bétera": [{"type": "node", "id": 9}],
+        })
+        datos = discover.descargar_comarca(solo=["bétera"])  # sin importar mayúsculas
+        assert [e["id"] for e in datos["elements"]] == [9]
         assert datos["elements"][0]["_municipio"] == "Bétera"
+
+    def test_municipio_pedido_que_no_es_de_la_comarca(self, monkeypatch):
+        from prospector import discover
+        self._doble(monkeypatch, {"Bétera": []})
+        with pytest.raises(discover.OverpassError, match="Burjassot"):
+            discover.descargar_comarca(solo=["Burjassot"])
+
+
+class TestEspejosCaidos:
+    """En agosto de 2026 dos de los tres espejos devolvían 500 hasta con una
+    consulta trivial, y tardaban 26 s. Rotar a ciegas gastaba los reintentos
+    del espejo bueno en servidores muertos."""
+
+    @pytest.fixture(autouse=True)
+    def limpio(self):
+        from prospector import discover
+        discover._fallos_espejo.clear()
+        yield
+        discover._fallos_espejo.clear()
+
+    def _respuesta(self, status=200):
+        class R:
+            status_code = status
+            def json(self):
+                return {"elements": []}
+        return R()
+
+    def test_una_vuelta_prueba_todos_los_espejos(self, monkeypatch):
+        from prospector import discover
+        usados = []
+
+        def post(url, *a, **k):
+            usados.append(url)
+            return self._respuesta(200 if url == discover.MIRRORS[2] else 500)
+
+        monkeypatch.setattr(discover.requests, "post", post)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        discover._consulta("q", reintentos=1)
+        assert usados == discover.MIRRORS  # sin gastar una vuelta entera por espejo
+
+    def test_deja_de_insistir_con_el_espejo_muerto(self, monkeypatch):
+        from prospector import discover
+        usados = []
+
+        def post(url, *a, **k):
+            usados.append(url)
+            return self._respuesta(200 if url == discover.MIRRORS[0] else 500)
+
+        monkeypatch.setattr(discover.requests, "post", post)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        for _ in range(4):
+            discover._consulta("q", reintentos=1)
+        # El bueno responde siempre; los otros dos solo se prueban al principio.
+        assert usados.count(discover.MIRRORS[1]) <= discover._TOLERANCIA
+
+    def test_un_exito_perdona_los_fallos_previos(self, monkeypatch):
+        from prospector import discover
+        discover._fallos_espejo[discover.MIRRORS[0]] = 1
+        monkeypatch.setattr(discover.requests, "post",
+                            lambda url, *a, **k: self._respuesta(200))
+        discover._consulta("q", reintentos=1)
+        assert discover._fallos_espejo[discover.MIRRORS[0]] == 0
+
+    def test_si_caen_todos_se_vuelven_a_probar(self, monkeypatch):
+        """Mejor insistir que quedarse sin ningún espejo que probar."""
+        from prospector import discover
+        for m in discover.MIRRORS:
+            discover._fallos_espejo[m] = 99
+        assert discover._espejos_vivos() == list(discover.MIRRORS)
+
+
+class TestCacheDeMunicipios:
+    def test_la_segunda_vez_no_pregunta_a_osm(self, tmp_path, monkeypatch):
+        from prospector import discover
+        llamadas = []
+        monkeypatch.setattr(discover, "municipios",
+                            lambda c, **k: llamadas.append(c) or [("Llíria", 3600000001)])
+        cache = tmp_path / "municipios.json"
+        assert discover.municipios_cacheados(cache=cache) == [("Llíria", 3600000001)]
+        assert discover.municipios_cacheados(cache=cache) == [("Llíria", 3600000001)]
+        assert len(llamadas) == 1
+
+    def test_refrescar_vuelve_a_preguntar(self, tmp_path, monkeypatch):
+        from prospector import discover
+        llamadas = []
+        monkeypatch.setattr(discover, "municipios",
+                            lambda c, **k: llamadas.append(c) or [("Llíria", 1)])
+        cache = tmp_path / "municipios.json"
+        discover.municipios_cacheados(cache=cache)
+        discover.municipios_cacheados(cache=cache, refrescar=True)
+        assert len(llamadas) == 2
+
+    def test_una_comarca_distinta_no_reutiliza_la_caché(self, tmp_path, monkeypatch):
+        from prospector import discover
+        llamadas = []
+        monkeypatch.setattr(discover, "municipios",
+                            lambda c, **k: llamadas.append(c) or [(c, 1)])
+        cache = tmp_path / "municipios.json"
+        discover.municipios_cacheados("el Camp de Túria", cache=cache)
+        discover.municipios_cacheados("l'Horta Nord", cache=cache)
+        assert llamadas == ["el Camp de Túria", "l'Horta Nord"]

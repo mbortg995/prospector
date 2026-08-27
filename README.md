@@ -100,8 +100,15 @@ variantes (`l'Eliana` y `L'Eliana` como valores distintos).
 
 Es un servicio comunitario gratuito. En modo círculo `discover` lanza **una
 sola consulta** y solo parte el área en cuatro teselas si esa consulta falla,
-hasta dos niveles. Rota entre tres espejos ante fallo y espera `--espera`
-segundos entre consultas.
+hasta dos niveles. Los espejos se prueban en orden y el que falla se
+degrada; tras dos fallos se deja de intentar con él durante esa ejecución. No
+se rota a ciegas: en agosto de 2026 dos de los tres espejos devolvían 500 hasta
+con una consulta trivial, así que rotar gastaba los reintentos del bueno en
+servidores muertos. Espera `--espera` segundos entre consultas.
+
+La lista de municipios de la comarca se cachea en disco: cambia cada varios
+años y la consulta que la saca es de las caras. `--refrescar-municipios` la
+vuelve a pedir.
 
 Un municipio que no responda **no tira el censo**: se anota y al final se te
 dice con qué `--municipios` reintentar solo esos. Son 16 consultas, o sea 16

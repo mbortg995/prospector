@@ -1,17 +1,24 @@
 """Censo de negocios vía Overpass (OpenStreetMap). Gratis, sin API key."""
+import json
 import math
 import re
 import time
 
 import requests
 
-# Espejos de Overpass. Son servicios comunitarios gratuitos: se rota entre
-# ellos ante fallo para no castigar siempre al mismo.
+# Espejos de Overpass, en orden de preferencia. Son servicios comunitarios y
+# se caen por su cuenta: en agosto de 2026, dos de estos tres devolvían 500
+# hasta con una consulta trivial, y tardaban 26 s en hacerlo. Por eso no se
+# rota a ciegas (eso gastaba los reintentos del bueno en servidores muertos):
+# se prueban en orden y el que falla se degrada al final durante esta
+# ejecución. Tras `_TOLERANCIA` fallos se deja de intentar con él.
 MIRRORS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
+_TOLERANCIA = 2
+_fallos_espejo: dict = {}
 OVERPASS = MIRRORS[0]
 UA = {"User-Agent": "prospector-local/1.0"}
 LA_POBLA = (39.5878, -0.5397)
@@ -50,13 +57,20 @@ rel(area.c)["admin_level"="8"]["boundary"="administrative"];
 out tags;
 """
 
+# Por id de área, NUNCA por nombre: `area["name"="Serra"]` casa con cualquier
+# área del mundo que se llame así, y Serra (Espírito Santo, Brasil) tiene medio
+# millón de habitantes. En la primera pasada por comarca metió 536 negocios
+# brasileños en el censo.
 Q_MUNICIPIO = """
 [out:json][timeout:{t}];
-area["admin_level"="8"]["name"="{muni}"]->.a;
+area({aid})->.a;
 (
 """ + CATEGORIAS.replace("{sel}", "area.a") + """);
 out center tags;
 """
+
+# Overpass numera las áreas de relaciones como 3600000000 + id de la relación.
+AREA_BASE = 3_600_000_000
 
 
 class OverpassError(RuntimeError):
@@ -193,28 +207,39 @@ def _cuadrantes(bbox):
             (mlat, w, n, mlon), (mlat, mlon, n, e)]
 
 
+def _espejos_vivos() -> list:
+    """Los que aún no han agotado la paciencia en esta ejecución."""
+    vivos = [m for m in MIRRORS if _fallos_espejo.get(m, 0) < _TOLERANCIA]
+    return vivos or list(MIRRORS)  # si han fallado todos, volver a probarlos
+
+
 def _consulta(q: str, timeout_q: int = 180, reintentos: int = 3,
               espera: float = 3.0) -> dict:
-    """Una consulta a Overpass, rotando de espejo en cada reintento."""
+    """Una consulta a Overpass. Cada vuelta prueba todos los espejos vivos."""
     ultimo = "sin intentos"
     for i in range(reintentos):
-        try:
-            r = requests.post(MIRRORS[i % len(MIRRORS)], data={"data": q},
-                              timeout=timeout_q + 30, headers=UA)
-        except requests.exceptions.RequestException as e:
-            ultimo = f"{type(e).__name__}: {e}"
-        else:
-            if r.status_code == 200:
-                try:
-                    return r.json()
-                except ValueError:
-                    # Overpass corta la respuesta a medias cuando va saturado
-                    ultimo = "respuesta incompleta o no es JSON"
+        for espejo in _espejos_vivos():
+            try:
+                r = requests.post(espejo, data={"data": q},
+                                  timeout=timeout_q + 30, headers=UA)
+            except requests.exceptions.RequestException as e:
+                ultimo = f"{espejo}: {type(e).__name__}: {e}"
             else:
-                ultimo = f"HTTP {r.status_code}"
+                if r.status_code == 200:
+                    try:
+                        datos = r.json()
+                    except ValueError:
+                        # Overpass corta la respuesta a medias cuando va saturado
+                        ultimo = f"{espejo}: respuesta incompleta o no es JSON"
+                    else:
+                        _fallos_espejo[espejo] = 0
+                        return datos
+                else:
+                    ultimo = f"{espejo}: HTTP {r.status_code}"
+            _fallos_espejo[espejo] = _fallos_espejo.get(espejo, 0) + 1
         if i < reintentos - 1:
             time.sleep(espera * 5 * (i + 1))
-    raise OverpassError(f"Overpass falló tras {reintentos} intentos ({ultimo})")
+    raise OverpassError(f"Overpass falló tras {reintentos} vueltas ({ultimo})")
 
 
 def _pedir(bbox, timeout_q: int = 180, **kw) -> dict:
@@ -225,18 +250,44 @@ def _pedir(bbox, timeout_q: int = 180, **kw) -> dict:
 
 
 def municipios(comarca: str = COMARCA, timeout_q: int = 120, **kw) -> list:
-    """Los municipios de la comarca, preguntados a OSM en vez de codificados."""
+    """Los municipios de la comarca: [(nombre, id de área), ...].
+
+    Se devuelve el id de área y no solo el nombre porque las consultas
+    posteriores tienen que ir por id: hay municipios homónimos en otros países.
+    """
     datos = _consulta(Q_MUNICIPIOS.format(t=timeout_q, comarca=comarca),
                       timeout_q=timeout_q, **kw)
-    nombres = sorted(e.get("tags", {}).get("name") for e in datos.get("elements", [])
-                     if e.get("tags", {}).get("name"))
-    if not nombres:
+    munis = sorted(
+        (e["tags"]["name"], AREA_BASE + e["id"])
+        for e in datos.get("elements", [])
+        if e.get("tags", {}).get("name") and e.get("id")
+    )
+    if not munis:
         raise OverpassError(f"OSM no conoce la comarca «{comarca}»")
-    return nombres
+    return munis
+
+
+def municipios_cacheados(comarca: str = COMARCA, cache=None, refrescar: bool = False,
+                         aviso=None, **kw) -> list:
+    """La lista de municipios cambia cada varios años; la consulta que la saca
+    (`map_to_area`) es de las caras. Se guarda en disco."""
+    aviso = aviso or (lambda _: None)
+    if cache and not refrescar and cache.exists():
+        guardado = json.loads(cache.read_text(encoding="utf-8"))
+        if guardado.get("comarca") == comarca:
+            aviso(f"{len(guardado['municipios'])} municipios (de caché)")
+            return [tuple(m) for m in guardado["municipios"]]
+    munis = municipios(comarca, **kw)
+    if cache:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"comarca": comarca, "municipios": munis},
+                                    ensure_ascii=False), encoding="utf-8")
+    return munis
 
 
 def descargar_comarca(comarca: str = COMARCA, reintentos: int = 3,
-                      espera: float = 3.0, aviso=None, solo=None) -> dict:
+                      espera: float = 3.0, aviso=None, solo=None,
+                      cache=None, refrescar: bool = False) -> dict:
     """Censo por municipios de la comarca.
 
     Una consulta por municipio en vez de un círculo: el ámbito sale exacto y
@@ -249,19 +300,23 @@ def descargar_comarca(comarca: str = COMARCA, reintentos: int = 3,
     resto. Solo se rinde si no ha salido ni uno.
     """
     aviso = aviso or (lambda _: None)
+    munis = municipios_cacheados(comarca, cache=cache, refrescar=refrescar,
+                                 aviso=aviso, reintentos=reintentos, espera=espera)
     if solo:
-        munis = list(solo)
+        pedidos = {n.casefold() for n in solo}
+        munis = [m for m in munis if m[0].casefold() in pedidos]
+        if not munis:
+            raise OverpassError(f"ninguno de {list(solo)} está en «{comarca}»")
         aviso(f"{len(munis)} municipios pedidos a mano")
     else:
-        munis = municipios(comarca, reintentos=reintentos, espera=espera)
         aviso(f"{len(munis)} municipios en «{comarca}»")
 
     elementos, vistos, fallidos = [], set(), []
-    for i, muni in enumerate(munis):
+    for i, (muni, aid) in enumerate(munis):
         if i:
             time.sleep(espera)  # cortesía con un servicio gratuito
         try:
-            datos = _consulta(Q_MUNICIPIO.format(t=180, muni=muni),
+            datos = _consulta(Q_MUNICIPIO.format(t=180, aid=aid),
                               reintentos=reintentos, espera=espera)
         except OverpassError as e:
             fallidos.append(muni)
