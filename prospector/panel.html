@@ -6,128 +6,198 @@
 <title>Prospector</title>
 <style>
   :root {
-    --fondo: #f6f7f9; --papel: #fff; --tinta: #1a1d21; --suave: #6b7280;
-    --linea: #e3e6ea; --acento: #1f5fbf; --acento-suave: #eaf1fc;
-    --caida: #b3261e; --sinweb: #8a5200; --obsoleta: #1f5fbf; --ok: #15803d;
+    --fondo:#f5f6f8; --papel:#fff; --tinta:#16191d; --suave:#69717b;
+    --linea:#e2e6ea; --acento:#1f5fbf; --suavecento:#eaf1fc; --hover:#f0f4fa;
+    --caida:#b3261e; --sinweb:#8a5200; --obsoleta:#1f5fbf; --ok:#15803d;
+    --aviso:#8a5200; --sombra:0 1px 2px rgba(0,0,0,.05);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --fondo: #14171a; --papel: #1c2024; --tinta: #e8eaed; --suave: #9aa3ad;
-      --linea: #2c3238; --acento: #7aa7f0; --acento-suave: #1e2a3d;
-      --caida: #f2857c; --sinweb: #e0a458; --obsoleta: #7aa7f0; --ok: #6ee7a8;
+      --fondo:#121519; --papel:#1b1f24; --tinta:#e7eaee; --suave:#98a1ab;
+      --linea:#2b3138; --acento:#7aa7f0; --suavecento:#1d2a3c; --hover:#222831;
+      --caida:#f2857c; --sinweb:#e0a458; --obsoleta:#7aa7f0; --ok:#6ee7a8;
+      --aviso:#e0a458; --sombra:0 1px 2px rgba(0,0,0,.3);
     }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--fondo); color: var(--tinta);
-         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  header { background: var(--papel); border-bottom: 1px solid var(--linea);
-           padding: 14px 20px; display: flex; gap: 20px; align-items: baseline;
-           position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
-  h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
-  .cifras { display: flex; gap: 18px; color: var(--suave); font-size: 13px; }
-  .cifras b { color: var(--tinta); font-variant-numeric: tabular-nums; }
-  main { display: grid; grid-template-columns: minmax(0,1.55fr) minmax(0,1fr);
-         gap: 16px; padding: 16px 20px; align-items: start; }
-  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
-  .tarjeta { background: var(--papel); border: 1px solid var(--linea);
-             border-radius: 10px; overflow: hidden; }
-  .tarjeta h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
-                color: var(--suave); margin: 0; padding: 12px 14px;
-                border-bottom: 1px solid var(--linea); font-weight: 600; }
-  .cuerpo { padding: 14px; }
-  .barra { display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap;
-           border-bottom: 1px solid var(--linea); align-items: center; }
-  select, input, button, textarea { font: inherit; color: inherit;
-    background: var(--papel); border: 1px solid var(--linea);
-    border-radius: 7px; padding: 6px 9px; }
-  button { cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--acento); color: var(--acento); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.primario { background: var(--acento); color: #fff; border-color: var(--acento); }
-  button.primario:hover:not(:disabled) { color: #fff; opacity: .9; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th { text-align: left; font-size: 11px; text-transform: uppercase;
-       letter-spacing: .05em; color: var(--suave); padding: 8px 10px;
-       border-bottom: 1px solid var(--linea); font-weight: 600; }
-  td { padding: 8px 10px; border-bottom: 1px solid var(--linea); }
-  tbody tr { cursor: pointer; }
-  tbody tr:hover { background: var(--acento-suave); }
-  tbody tr.activa { background: var(--acento-suave); }
-  .pts { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
-  .carril { font-size: 11px; font-weight: 600; text-transform: uppercase;
-            letter-spacing: .04em; }
-  .web_caida { color: var(--caida); } .sin_web { color: var(--sinweb); }
-  .web_obsoleta { color: var(--obsoleta); } .web_ok { color: var(--ok); }
-  .apagado { color: var(--suave); }
-  .senal { padding: 3px 0 3px 14px; position: relative; font-size: 13.5px; }
-  .senal::before { content: "·"; position: absolute; left: 4px; color: var(--suave); }
-  .consola { background: #0f1215; color: #d6dbe1; font: 12px/1.55 ui-monospace,
-             SFMono-Regular, Menlo, monospace; padding: 10px 12px; max-height: 230px;
-             overflow: auto; white-space: pre-wrap; word-break: break-word; }
-  .campo { display: grid; gap: 4px; margin-bottom: 9px; }
-  .campo label { font-size: 12px; color: var(--suave); }
-  .fila { display: flex; gap: 8px; flex-wrap: wrap; }
-  .fila > * { flex: 1; min-width: 110px; }
-  .aviso { padding: 12px 14px; color: var(--suave); font-size: 14px; }
-  a { color: var(--acento); }
-  .etiqueta { display: inline-block; font-size: 11px; padding: 2px 7px;
-              border-radius: 20px; background: var(--acento-suave);
-              color: var(--acento); font-weight: 600; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fondo); color:var(--tinta);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  header { background:var(--papel); border-bottom:1px solid var(--linea);
+    position:sticky; top:0; z-index:20; }
+  .cabecera { display:flex; gap:22px; align-items:baseline; padding:13px 20px 0;
+    flex-wrap:wrap; }
+  h1 { font-size:17px; margin:0; letter-spacing:-.01em; }
+  .cifras { display:flex; gap:17px; color:var(--suave); font-size:13px; }
+  .cifras b { color:var(--tinta); font-variant-numeric:tabular-nums; }
+  nav { display:flex; gap:2px; padding:10px 20px 0; }
+  nav button { background:none; border:none; border-bottom:2px solid transparent;
+    padding:8px 13px; font:inherit; color:var(--suave); cursor:pointer;
+    border-radius:6px 6px 0 0; }
+  nav button:hover { background:var(--hover); color:var(--tinta); }
+  nav button[aria-selected="true"] { color:var(--acento); border-bottom-color:var(--acento);
+    font-weight:600; }
+  nav .cuenta { font-size:11px; background:var(--suavecento); color:var(--acento);
+    border-radius:20px; padding:1px 7px; margin-left:6px; font-variant-numeric:tabular-nums; }
+  main { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);
+    gap:15px; padding:15px 20px; align-items:start; }
+  @media (max-width:1080px) { main { grid-template-columns:1fr; } }
+  .tarjeta { background:var(--papel); border:1px solid var(--linea);
+    border-radius:10px; overflow:hidden; box-shadow:var(--sombra); }
+  .tarjeta h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--suave); margin:0; padding:11px 14px; border-bottom:1px solid var(--linea);
+    font-weight:600; }
+  .cuerpo { padding:14px; }
+  .barra { display:flex; gap:8px; padding:10px 14px; flex-wrap:wrap;
+    border-bottom:1px solid var(--linea); align-items:center; }
+  select,input,button,textarea { font:inherit; color:inherit; background:var(--papel);
+    border:1px solid var(--linea); border-radius:7px; padding:6px 9px; }
+  button { cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--acento); color:var(--acento); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primario { background:var(--acento); color:#fff; border-color:var(--acento); }
+  button.primario:hover:not(:disabled) { color:#fff; opacity:.9; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--suave); padding:8px 10px; border-bottom:1px solid var(--linea);
+    font-weight:600; }
+  td { padding:7px 10px; border-bottom:1px solid var(--linea); }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:var(--hover); }
+  tbody tr.activa { background:var(--suavecento); }
+  .pts { font-variant-numeric:tabular-nums; font-weight:600; text-align:right; }
+  .carril { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .web_caida{color:var(--caida)} .sin_web{color:var(--sinweb)}
+  .web_obsoleta{color:var(--obsoleta)} .web_ok{color:var(--ok)}
+  .apagado { color:var(--suave); }
+  .acciones { display:flex; gap:3px; justify-content:flex-end; }
+  .acciones button { padding:3px 8px; font-size:12px; line-height:1.4; }
+  .senal { padding:3px 0 3px 14px; position:relative; font-size:13.5px; }
+  .senal::before { content:"·"; position:absolute; left:4px; color:var(--suave); }
+  .consola { background:#0e1114; color:#d6dbe1; font:12px/1.55 ui-monospace,
+    SFMono-Regular,Menlo,monospace; padding:10px 12px; max-height:200px;
+    overflow:auto; white-space:pre-wrap; word-break:break-word; }
+  .campo { display:grid; gap:4px; margin-bottom:9px; }
+  .campo label { font-size:12px; color:var(--suave); }
+  .fila { display:flex; gap:8px; flex-wrap:wrap; }
+  .fila > * { flex:1; min-width:110px; }
+  .aviso { padding:16px 14px; color:var(--suave); font-size:14px; }
+  a { color:var(--acento); }
+  .etiqueta { display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px;
+    background:var(--suavecento); color:var(--acento); font-weight:600; }
+  /* Tablero comercial */
+  .tablero { display:grid; grid-template-columns:repeat(auto-fit,minmax(196px,1fr));
+    gap:11px; padding:14px; }
+  .columna h3 { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--suave); margin:0 0 8px; font-weight:600;
+    display:flex; justify-content:space-between; }
+  .ficha-mini { background:var(--fondo); border:1px solid var(--linea);
+    border-radius:8px; padding:8px 10px; margin-bottom:7px; cursor:pointer; font-size:13.5px; }
+  .ficha-mini:hover { border-color:var(--acento); }
+  .ficha-mini .nom { font-weight:600; }
+  .ficha-mini .meta { color:var(--suave); font-size:12px; }
+  .vence { color:var(--aviso); font-weight:600; }
+  .oculto { display:none; }
+  dialog { border:1px solid var(--linea); border-radius:11px; background:var(--papel);
+    color:var(--tinta); padding:0; box-shadow:0 8px 30px rgba(0,0,0,.2); min-width:290px; }
+  dialog::backdrop { background:rgba(0,0,0,.35); }
+  dialog h3 { margin:0; padding:13px 15px; border-bottom:1px solid var(--linea);
+    font-size:14px; }
+  dialog .cuerpo { padding:14px 15px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Prospector</h1>
-  <div class="cifras" id="cifras"></div>
+  <div class="cabecera">
+    <h1>Prospector</h1>
+    <div class="cifras" id="cifras"></div>
+  </div>
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" onclick="verPestana('cola')" id="tCola">
+      Cola<span class="cuenta" id="nCola">·</span></button>
+    <button role="tab" aria-selected="false" onclick="verPestana('comercial')" id="tComercial">
+      Comercial<span class="cuenta" id="nComercial">·</span></button>
+    <button role="tab" aria-selected="false" onclick="verPestana('archivo')" id="tArchivo">
+      Archivo<span class="cuenta" id="nArchivo">·</span></button>
+  </nav>
 </header>
 
 <main>
   <div>
-    <div class="tarjeta">
-      <h2>Cola de trabajo</h2>
-      <div class="barra">
-        <select id="fTrack">
-          <option value="">Todos los carriles</option>
-          <option value="web_caida">Web caída</option>
-          <option value="sin_web">Sin web</option>
-          <option value="web_obsoleta">Web obsoleta</option>
-        </select>
-        <select id="fMuni"><option value="">Todos los municipios</option></select>
-        <select id="fN">
-          <option value="50">50</option><option value="100" selected>100</option>
-          <option value="500">500</option>
-        </select>
-        <button onclick="cargarCola()">Actualizar</button>
+    <section id="pCola">
+      <div class="tarjeta">
+        <h2>Cola de trabajo — sin tocar todavía</h2>
+        <div class="barra">
+          <select id="fTrack">
+            <option value="">Todos los carriles</option>
+            <option value="web_caida">Web caída</option>
+            <option value="sin_web">Sin web</option>
+            <option value="web_obsoleta">Web obsoleta</option>
+          </select>
+          <select id="fMuni"><option value="">Todos los municipios</option></select>
+          <select id="fN"><option>50</option><option selected>100</option><option>500</option></select>
+          <button onclick="cargarCola()">Actualizar</button>
+        </div>
+        <div id="cola"></div>
       </div>
-      <div id="cola"></div>
-    </div>
+      <div class="tarjeta" style="margin-top:15px">
+        <h2>Tareas</h2>
+        <div class="barra">
+          <label class="apagado" style="flex:0 0 auto;font-size:13px">Tope</label>
+          <input id="limite" type="number" value="10" min="1" max="500" style="width:76px">
+          <button id="bAudit" onclick="lanzar('audit')">Auditar webs</button>
+          <button id="bEnriq" onclick="lanzar('enriquecer')">Buscar teléfonos (de pago)</button>
+          <span id="estadoTarea" class="apagado" style="font-size:13px"></span>
+        </div>
+        <div class="consola" id="consola">Sin tareas todavía.</div>
+      </div>
+    </section>
 
-    <div class="tarjeta" style="margin-top:16px">
-      <h2>Tareas</h2>
-      <div class="barra">
-        <label class="apagado" style="flex:0 0 auto;font-size:13px">Tope</label>
-        <input id="limite" type="number" value="10" min="1" max="500" style="width:78px">
-        <button id="bAudit" onclick="lanzar('audit')">Auditar webs</button>
-        <button id="bEnriq" onclick="lanzar('enriquecer')">Buscar teléfonos (de pago)</button>
-        <span id="estadoTarea" class="apagado" style="font-size:13px"></span>
+    <section id="pComercial" class="oculto">
+      <div class="tarjeta">
+        <h2>Leads en marcha</h2>
+        <div id="tablero" class="tablero"></div>
       </div>
-      <div class="consola" id="consola">Sin tareas todavía.</div>
-    </div>
+    </section>
+
+    <section id="pArchivo" class="oculto">
+      <div class="tarjeta">
+        <h2>Aparcados y cerrados</h2>
+        <div id="archivo"></div>
+      </div>
+    </section>
   </div>
 
   <div>
-    <div class="tarjeta"><h2>Ficha</h2><div id="ficha" class="aviso">
-      Elige un negocio de la cola.</div></div>
-    <div class="tarjeta" style="margin-top:16px"><h2>Embudo</h2>
+    <div class="tarjeta"><h2>Ficha</h2>
+      <div id="ficha" class="aviso">Elige un negocio de cualquier lista.</div></div>
+    <div class="tarjeta" style="margin-top:15px"><h2>Embudo</h2>
       <div class="cuerpo" id="embudo"></div></div>
   </div>
 </main>
+
+<dialog id="dlgAparcar">
+  <h3>Aparcar temporalmente</h3>
+  <div class="cuerpo">
+    <div class="campo"><label>Motivo</label>
+      <input id="apMotivo" value="Retomar más adelante"></div>
+    <div class="campo"><label>¿Cuándo lo retomo?</label><input id="apFecha" type="date"></div>
+    <div class="fila" style="margin-top:10px">
+      <button class="primario" onclick="confirmarAparcar()">Aparcar</button>
+      <button onclick="dlgAparcar.close()">Cancelar</button>
+    </div>
+  </div>
+</dialog>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? "").replace(/[&<>"]/g, c =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let seleccion = null;
+const HOY = new Date().toISOString().slice(0, 10);
+const NOMBRES = {nuevo:"Nuevo", en_curso:"En curso", maqueta:"Maqueta",
+  contactado:"Contactado", reunion:"Reunión", propuesta:"Propuesta",
+  ganado:"Ganado", aparcado:"Aparcado", perdido:"Perdido", descartado:"Descartado"};
+const EN_JUEGO = ["en_curso","maqueta","contactado","reunion","propuesta","ganado"];
+let seleccion = null, pestana = "cola", aparcando = null;
 
 async function pedir(ruta, opciones) {
   const r = await fetch(ruta, opciones);
@@ -135,35 +205,134 @@ async function pedir(ruta, opciones) {
   if (!r.ok) throw new Error(d.error || "error " + r.status);
   return d;
 }
+const enviar = (ruta, cuerpo) => pedir(ruta, {method:"POST",
+  headers:{"Content-Type":"application/json"}, body:JSON.stringify(cuerpo)});
 
+function verPestana(cual) {
+  pestana = cual;
+  for (const p of ["cola","comercial","archivo"]) {
+    $("#p" + p[0].toUpperCase() + p.slice(1)).classList.toggle("oculto", p !== cual);
+    $("#t" + p[0].toUpperCase() + p.slice(1)).setAttribute("aria-selected", p === cual);
+  }
+  if (cual === "comercial") cargarComercial();
+  if (cual === "archivo") cargarArchivo();
+}
+
+/* ---------- Cola ---------- */
 async function cargarCola() {
-  const p = new URLSearchParams({
-    track: $("#fTrack").value, municipio: $("#fMuni").value, n: $("#fN").value });
+  const p = new URLSearchParams({track:$("#fTrack").value,
+    municipio:$("#fMuni").value, n:$("#fN").value});
   const filas = await pedir("/api/cola?" + p);
+  $("#nCola").textContent = filas.length;
   if (!filas.length) { $("#cola").innerHTML =
     '<div class="aviso">Nada en la cola con ese filtro. ¿Has auditado ya?</div>'; return; }
   $("#cola").innerHTML = `<table><thead><tr>
-      <th class="pts">Pts</th><th>Carril</th><th>Negocio</th>
-      <th>Municipio</th><th>Teléfono</th><th class="pts">Km</th>
+      <th class="pts">Pts</th><th>Carril</th><th>Negocio</th><th>Municipio</th>
+      <th>Teléfono</th><th class="pts">Km</th><th style="text-align:right">Acciones</th>
     </tr></thead><tbody>${filas.map(f => `
-      <tr onclick="verFicha(${f.id}, this)" data-id="${f.id}">
+      <tr data-id="${f.id}" onclick="verFicha(${f.id}, this)">
         <td class="pts">${f.score}</td>
-        <td class="carril ${f.track}">${f.track.replace("_", " ")}</td>
+        <td class="carril ${f.track}">${f.track.replace("_"," ")}</td>
         <td>${esc(f.name)}</td>
         <td class="apagado">${esc(f.municipality || "—")}</td>
         <td>${f.phone ? esc(f.phone) : '<span class="apagado">—</span>'}</td>
         <td class="pts apagado">${f.dist_km ?? ""}</td>
+        <td><div class="acciones" onclick="event.stopPropagation()">
+          <button title="Lo estoy trabajando"
+            onclick="mover(${f.id},'en_curso')">Tratando</button>
+          <button title="Archivar temporalmente"
+            onclick="abrirAparcar(${f.id})">Aparcar</button>
+          <button title="No volver a llamar"
+            onclick="descartar(${f.id})">Descartar</button>
+        </div></td>
       </tr>`).join("")}</tbody></table>`;
-  if (seleccion) {
-    const tr = document.querySelector(`tr[data-id="${seleccion}"]`);
-    if (tr) tr.classList.add("activa");
-  }
+  if (seleccion) document.querySelector(`tr[data-id="${seleccion}"]`)?.classList.add("activa");
 }
 
+/* ---------- Comercial ---------- */
+async function cargarComercial() {
+  const leads = await pedir("/api/leads");
+  $("#nComercial").textContent = leads.length;
+  if (!leads.length) { $("#tablero").innerHTML =
+    `<div class="aviso">Todavía no has cogido ningún lead. En la pestaña
+      <b>Cola</b>, el botón «Tratando» los trae aquí.</div>`; return; }
+  $("#tablero").innerHTML = EN_JUEGO.map(etapa => {
+    const g = leads.filter(l => l.stage === etapa);
+    return `<div class="columna">
+      <h3><span>${NOMBRES[etapa]}</span><span>${g.length || ""}</span></h3>
+      ${g.map(tarjetaLead).join("") ||
+        '<div class="apagado" style="font-size:12.5px">—</div>'}</div>`;
+  }).join("");
+}
+
+function tarjetaLead(l) {
+  const vence = l.next_action_date && l.next_action_date <= HOY;
+  return `<div class="ficha-mini" onclick="verFicha(${l.id})">
+    <div class="nom">${esc(l.name)}</div>
+    <div class="meta">${esc(l.municipality || "—")}${l.score ? " · " + l.score + " pts" : ""}</div>
+    ${l.next_action ? `<div class="meta ${vence ? "vence" : ""}">
+      ${esc(l.next_action)}${l.next_action_date ? " · " + esc(l.next_action_date) : ""}</div>` : ""}
+    ${l.contactos ? `<div class="meta">${l.contactos} contacto${l.contactos > 1 ? "s" : ""}</div>` : ""}
+  </div>`;
+}
+
+/* ---------- Archivo ---------- */
+async function cargarArchivo() {
+  const filas = await pedir("/api/archivo");
+  $("#nArchivo").textContent = filas.length;
+  if (!filas.length) { $("#archivo").innerHTML =
+    '<div class="aviso">Nada archivado.</div>'; return; }
+  $("#archivo").innerHTML = `<table><thead><tr>
+      <th>Estado</th><th>Negocio</th><th>Municipio</th><th>Motivo</th>
+      <th>Retomar</th><th style="text-align:right">Acciones</th>
+    </tr></thead><tbody>${filas.map(f => {
+      const vence = f.next_action_date && f.next_action_date <= HOY;
+      return `<tr data-id="${f.id}" onclick="verFicha(${f.id}, this)">
+        <td><span class="etiqueta">${NOMBRES[f.stage]}</span></td>
+        <td>${esc(f.name)}</td>
+        <td class="apagado">${esc(f.municipality || "—")}</td>
+        <td class="apagado">${esc(f.next_action || "—")}</td>
+        <td class="${vence ? "vence" : "apagado"}">${esc(f.next_action_date || "—")}</td>
+        <td><div class="acciones" onclick="event.stopPropagation()">
+          ${f.stage === "aparcado"
+            ? `<button onclick="mover(${f.id},'en_curso')">Retomar</button>`
+            : `<button onclick="mover(${f.id},'nuevo')">Devolver a la cola</button>`}
+        </div></td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+
+/* ---------- Acciones ---------- */
+async function mover(id, etapa, extra = {}) {
+  await enviar("/api/etapa", {id, etapa, ...extra});
+  if (seleccion === id) pintarFicha(await pedir("/api/ficha/" + id));
+  refrescar();
+}
+function abrirAparcar(id) { aparcando = id; $("#apFecha").value = ""; dlgAparcar.showModal(); }
+function confirmarAparcar() {
+  dlgAparcar.close();
+  mover(aparcando, "aparcado", {motivo:$("#apMotivo").value, fecha:$("#apFecha").value});
+}
+function descartar(id) {
+  const motivo = prompt("Motivo del descarte:", "no encaja");
+  if (motivo !== null) mover(id, "descartado", {motivo});
+}
+function refrescar() {
+  cargarEmbudo();
+  if (pestana === "cola") cargarCola();
+  if (pestana === "comercial") cargarComercial();
+  if (pestana === "archivo") cargarArchivo();
+  actualizarCuentas();
+}
+async function actualizarCuentas() {
+  $("#nComercial").textContent = (await pedir("/api/leads")).length;
+  $("#nArchivo").textContent = (await pedir("/api/archivo")).length;
+}
+
+/* ---------- Ficha ---------- */
 async function verFicha(id, tr) {
   seleccion = id;
   document.querySelectorAll("tbody tr").forEach(x => x.classList.remove("activa"));
-  if (tr) tr.classList.add("activa");
+  tr?.classList.add("activa");
   pintarFicha(await pedir("/api/ficha/" + id));
 }
 
@@ -171,40 +340,42 @@ function pintarFicha(d) {
   const b = d.negocio, a = d.auditoria, p = d.pipeline, pl = d.places;
   $("#ficha").innerHTML = `<div class="cuerpo">
     <div style="font-size:17px;font-weight:600">${esc(b.name)}</div>
-    <div class="apagado" style="font-size:13px;margin-bottom:10px">
+    <div class="apagado" style="font-size:13px;margin-bottom:9px">
       ${esc(b.category)} · ${esc(b.municipality || "?")} · ${b.dist_km} km
-      ${p ? ` · <span class="etiqueta">${esc(p.stage)}</span>` : ""}
-    </div>
+      ${p ? ` · <span class="etiqueta">${NOMBRES[p.stage] || esc(p.stage)}</span>` : ""}</div>
     <div style="font-size:14px">
       ${b.phone ? `📞 <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>`
                 : '<span class="apagado">sin teléfono</span>'}<br>
-      ${b.website ? `🌐 <a href="${esc(b.website)}" target="_blank" rel="noopener">
-        ${esc(b.website)}</a>` : '<span class="apagado">sin web</span>'}<br>
-      ${b.address ? `<span class="apagado">${esc(b.address)}</span>` : ""}
-    </div>
-    ${a ? `<div style="margin-top:12px">
-      <b>${a.score} puntos</b> <span class="carril ${a.track}">${a.track.replace("_"," ")}</span>
-      <div style="margin-top:5px">${a.signals.map(s =>
+      ${b.website ? `🌐 <a href="${esc(b.website)}" target="_blank" rel="noopener">${esc(b.website)}</a>`
+                  : '<span class="apagado">sin web</span>'}<br>
+      ${b.address ? `<span class="apagado">${esc(b.address)}</span>` : ""}</div>
+    ${a ? `<div style="margin-top:11px"><b>${a.score} puntos</b>
+      <span class="carril ${a.track}">${a.track.replace("_"," ")}</span>
+      <div style="margin-top:4px">${a.signals.map(s =>
         `<div class="senal">${esc(s)}</div>`).join("")}</div></div>`
-      : '<div class="apagado" style="margin-top:12px">Sin auditar todavía.</div>'}
-    ${pl && !pl.matched ? `<div class="apagado" style="margin-top:10px;font-size:13px">
+      : '<div class="apagado" style="margin-top:11px">Sin auditar todavía.</div>'}
+    ${pl && !pl.matched ? `<div class="apagado" style="margin-top:9px;font-size:13px">
       Places: ${esc(pl.motivo)}</div>` : ""}
-    ${p && p.next_action ? `<div style="margin-top:10px;font-size:13.5px">
+    ${p && p.next_action ? `<div style="margin-top:9px;font-size:13.5px">
       <b>Siguiente:</b> ${esc(p.next_action)}
       <span class="apagado">(${esc(p.next_action_date || "sin fecha")})</span></div>` : ""}
-    ${d.historial.length ? `<div style="margin-top:10px;font-size:13px">
-      ${d.historial.map(h => `<div class="senal">${h.happened_at.slice(0,10)}
-        ${esc(h.kind)}: ${esc(h.outcome)} ${esc(h.notes || "")}</div>`).join("")}</div>` : ""}
+    ${d.historial.length ? `<div style="margin-top:9px;font-size:13px">${d.historial.map(h =>
+      `<div class="senal">${h.happened_at.slice(0,10)} ${esc(h.kind)}:
+        ${esc(h.outcome)} ${esc(h.notes || "")}</div>`).join("")}</div>` : ""}
 
-    <div style="margin-top:14px;border-top:1px solid var(--linea);padding-top:12px">
+    <div style="margin-top:13px;border-top:1px solid var(--linea);padding-top:11px">
+      <div class="fila" style="margin-bottom:10px">
+        <button onclick="mover(${b.id},'en_curso')">Tratando</button>
+        <button onclick="mover(${b.id},'maqueta')">Maqueta hecha</button>
+        <button onclick="abrirAparcar(${b.id})">Aparcar</button>
+      </div>
       <div class="fila">
-        <div class="campo"><label>Qué has hecho</label>
-          <select id="lKind"><option>llamada</option><option>visita</option>
-            <option>whatsapp</option></select></div>
-        <div class="campo"><label>Cómo ha ido</label>
-          <select id="lOutcome"><option>no_contesta</option><option>volver_a_llamar</option>
-            <option>interesado</option><option>cita</option>
-            <option>no_interesado</option></select></div>
+        <div class="campo"><label>Qué has hecho</label><select id="lKind">
+          <option>llamada</option><option>visita</option><option>whatsapp</option></select></div>
+        <div class="campo"><label>Cómo ha ido</label><select id="lOutcome">
+          <option>no_contesta</option><option>volver_a_llamar</option>
+          <option>interesado</option><option>cita</option>
+          <option>no_interesado</option></select></div>
       </div>
       <div class="campo"><label>Notas</label><input id="lNotes" placeholder="opcional"></div>
       <div class="fila">
@@ -213,91 +384,67 @@ function pintarFicha(d) {
         <div class="campo"><label>Fecha</label><input id="lFecha" type="date"></div>
       </div>
       <div class="fila" style="margin-top:4px">
-        <button class="primario" onclick="registrar(${b.id})">Registrar</button>
-        <button onclick="accion('maqueta', ${b.id})">Maqueta hecha</button>
-        <button onclick="excluir(${b.id})">No volver a llamar</button>
+        <button class="primario" onclick="registrar(${b.id})">Registrar contacto</button>
+        <button onclick="descartar(${b.id})">No volver a llamar</button>
       </div>
     </div></div>`;
 }
 
 async function registrar(id) {
-  pintarFicha(await pedir("/api/log", {method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({id, kind: $("#lKind").value, outcome: $("#lOutcome").value,
-      notes: $("#lNotes").value, next: $("#lNext").value, fecha: $("#lFecha").value})}));
-  cargarCola(); cargarEmbudo();
+  pintarFicha(await enviar("/api/log", {id, kind:$("#lKind").value,
+    outcome:$("#lOutcome").value, notes:$("#lNotes").value,
+    next:$("#lNext").value, fecha:$("#lFecha").value}));
+  refrescar();
 }
 
-async function accion(ruta, id, extra = {}) {
-  pintarFicha(await pedir("/api/" + ruta, {method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({id, ...extra})}));
-  cargarCola(); cargarEmbudo();
-}
-
-function excluir(id) {
-  const reason = prompt("Motivo de la exclusión:", "pidió no volver a llamar");
-  if (reason !== null) accion("excluir", id, {reason});
-}
-
+/* ---------- Embudo ---------- */
 async function cargarEmbudo() {
-  const e = await pedir("/api/embudo");
-  const t = e.totales;
-  $("#cifras").innerHTML = `
-    <span><b>${t.negocios ?? 0}</b> negocios</span>
+  const e = await pedir("/api/embudo"), t = e.totales;
+  $("#cifras").innerHTML = `<span><b>${t.negocios ?? 0}</b> negocios</span>
     <span><b>${t.contactables ?? 0}</b> contactables</span>
     <span><b>${t.sin_web ?? 0}</b> sin web</span>`;
-  const max = Math.max(1, ...e.etapas.map(x => x.n));
-  $("#embudo").innerHTML =
-    e.etapas.filter(x => x.n).map(x => `<div style="display:flex;gap:8px;
+  const vivas = e.etapas.filter(x => x.n);
+  const max = Math.max(1, ...vivas.map(x => x.n));
+  $("#embudo").innerHTML = vivas.map(x => `<div style="display:flex;gap:8px;
       align-items:center;font-size:13.5px;margin-bottom:3px">
-      <span style="width:88px" class="apagado">${x.etapa}</span>
+      <span style="width:86px" class="apagado">${NOMBRES[x.etapa] || x.etapa}</span>
       <span style="height:9px;border-radius:3px;background:var(--acento);
         width:${Math.round(x.n / max * 100)}%;min-width:3px"></span>
       <span class="pts">${x.n}</span></div>`).join("")
-    + (e.carriles.length ? `<div style="margin-top:12px;font-size:13.5px">
-      ${e.carriles.map(c => `<div class="senal">
-        <span class="carril ${c.track}">${c.track.replace("_"," ")}</span>
-        — ${c.n} negocios, media ${c.media}</div>`).join("")}</div>` : "")
     + (e.pendientes.length ? `<div style="margin-top:12px">
       <div class="apagado" style="font-size:12px;text-transform:uppercase">Próximas acciones</div>
-      ${e.pendientes.map(p => `<div class="senal">${esc(p.next_action_date)} —
+      ${e.pendientes.map(p => `<div class="senal ${p.next_action_date <= HOY ? "vence" : ""}"
+        onclick="verFicha(${p.id})" style="cursor:pointer">${esc(p.next_action_date)} —
         ${esc(p.name)}: ${esc(p.next_action)}</div>`).join("")}</div>` : "");
 }
 
+/* ---------- Tareas ---------- */
 async function lanzar(nombre) {
   const limite = parseInt($("#limite").value, 10);
   if (nombre === "enriquecer" &&
-      !confirm(`Se harán hasta ${limite} consultas de pago a Google Places. ¿Sigo?`))
-    return;
-  try { await pedir("/api/tarea", {method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({nombre, limite})}); }
+      !confirm(`Se harán hasta ${limite} consultas de pago a Google Places. ¿Sigo?`)) return;
+  try { await enviar("/api/tarea", {nombre, limite}); }
   catch (e) { alert(e.message); return; }
   seguirTarea();
 }
-
 let temporizador = null;
 async function seguirTarea() {
   const t = await pedir("/api/tarea");
   if (t.lineas.length) {
-    const c = $("#consola");
-    c.textContent = t.lineas.join("\n");
-    c.scrollTop = c.scrollHeight;
+    const c = $("#consola"); c.textContent = t.lineas.join("\n"); c.scrollTop = c.scrollHeight;
   }
   $("#bAudit").disabled = $("#bEnriq").disabled = t.viva;
   $("#estadoTarea").textContent = t.viva ? `${t.nombre} en marcha…`
     : (t.nombre ? `${t.nombre}: terminado` : "");
   clearTimeout(temporizador);
   if (t.viva) temporizador = setTimeout(seguirTarea, 1000);
-  else if (t.nombre) { cargarCola(); cargarEmbudo(); }
+  else if (t.nombre) refrescar();
 }
 
 (async function inicio() {
-  const municipios = await pedir("/api/municipios");
-  $("#fMuni").innerHTML += municipios.map(m =>
+  $("#fMuni").innerHTML += (await pedir("/api/municipios")).map(m =>
     `<option value="${esc(m)}">${esc(m)}</option>`).join("");
-  await cargarCola(); await cargarEmbudo(); await seguirTarea();
+  await cargarCola(); await cargarEmbudo(); await actualizarCuentas(); await seguirTarea();
 })();
 </script>
 </body>

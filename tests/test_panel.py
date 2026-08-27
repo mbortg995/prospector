@@ -98,6 +98,18 @@ class TestLectura:
         assert e["totales"]["contactables"] == 1
         assert {"track": "sin_web", "n": 1, "media": 88} in e["carriles"]
 
+    def test_el_embudo_cuenta_todas_las_etapas(self, servidor):
+        """La lista estaba copiada a mano en el panel, y `en_curso` y
+        `aparcado` no salían."""
+        from prospector import cli
+        e = get(servidor, "/api/embudo")
+        assert [x["etapa"] for x in e["etapas"]] == cli.ETAPAS
+
+    def test_el_embudo_refleja_un_aparcado(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "aparcado"})
+        e = get(servidor, "/api/embudo")
+        assert {"etapa": "aparcado", "n": 1} in e["etapas"]
+
     def test_municipios(self, servidor):
         assert get(servidor, "/api/municipios") == ["Llíria"]
 
@@ -105,6 +117,72 @@ class TestLectura:
         with pytest.raises(urllib.error.HTTPError) as e:
             get(servidor, "/api/inventado")
         assert e.value.code == 404
+
+
+class TestLeadsYArchivo:
+    """Antes, en cuanto tocabas un negocio desaparecía del panel: la cola solo
+    enseña los `nuevo`. Trabajabas a ciegas desde el primer paso."""
+
+    def test_un_lead_en_curso_sale_de_la_cola_y_entra_en_comercial(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "en_curso"})
+        assert get(servidor, "/api/cola") == []
+        (lead,) = get(servidor, "/api/leads")
+        assert lead["name"] == "Panadería Pepe" and lead["stage"] == "en_curso"
+
+    def test_comercial_trae_la_puntuación_y_la_acción_pendiente(self, servidor):
+        post(servidor, "/api/log", {"id": servidor.bid, "kind": "llamada",
+                                    "outcome": "cita", "next": "Visita con tablet",
+                                    "fecha": "2026-09-10"})
+        (lead,) = get(servidor, "/api/leads")
+        assert lead["score"] == 88 and lead["track"] == "sin_web"
+        assert lead["next_action"] == "Visita con tablet"
+        assert lead["contactos"] == 1
+
+    def test_los_nuevos_no_estan_en_comercial(self, servidor):
+        assert get(servidor, "/api/leads") == []
+
+    def test_aparcar_lo_manda_al_archivo_con_su_fecha(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "aparcado",
+                                      "motivo": "Cierra en agosto",
+                                      "fecha": "2026-09-15"})
+        assert get(servidor, "/api/cola") == []
+        assert get(servidor, "/api/leads") == []
+        (a,) = get(servidor, "/api/archivo")
+        assert a["stage"] == "aparcado"
+        assert a["next_action"] == "Cierra en agosto"
+        assert a["next_action_date"] == "2026-09-15"
+
+    def test_un_aparcado_se_puede_retomar(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "aparcado"})
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "en_curso"})
+        assert len(get(servidor, "/api/leads")) == 1
+
+    def test_los_descartados_van_al_archivo_y_se_excluyen(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "descartado",
+                                      "motivo": "no encaja"})
+        (a,) = get(servidor, "/api/archivo")
+        assert a["stage"] == "descartado"
+        assert servidor.con.execute(
+            "SELECT reason FROM exclusions WHERE key='osm:node/1'").fetchone()[0] == "no encaja"
+
+    def test_descartar_limpia_la_accion_pendiente(self, servidor):
+        """Si ya no se le llama, no puede seguir apareciendo en la agenda."""
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "aparcado",
+                                      "fecha": "2026-09-15"})
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "descartado"})
+        assert get(servidor, "/api/embudo")["pendientes"] == []
+
+    def test_devolver_a_la_cola(self, servidor):
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "aparcado"})
+        post(servidor, "/api/etapa", {"id": servidor.bid, "etapa": "nuevo"})
+        assert len(get(servidor, "/api/cola")) == 1
+
+    def test_una_etapa_inventada_se_rechaza(self, servidor):
+        """El navegador no escribe cualquier cosa en la BD."""
+        codigo, d = post(servidor, "/api/etapa", {"id": servidor.bid,
+                                                  "etapa": "lo_que_sea"})
+        assert codigo == 400 and "desconocida" in d["error"]
+        assert get(servidor, f"/api/ficha/{servidor.bid}")["pipeline"]["stage"] == "nuevo"
 
 
 class TestEscritura:

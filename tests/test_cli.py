@@ -207,6 +207,34 @@ class TestBugsDelPipeline:
         assert lineas[0].startswith("id,name,category")
 
 
+class TestEtapas:
+    def test_aparcado_no_bloquea_avanzar_despues(self, bd):
+        """Aparcar es una pausa, no un paso atrás."""
+        assert climod.etapa_resultante("aparcado", "contactado") == "contactado"
+
+    def test_sigue_sin_poder_retroceder(self, bd):
+        assert climod.etapa_resultante("reunion", "contactado") == "reunion"
+
+    def test_en_curso_va_antes_que_maqueta(self, bd):
+        assert climod.etapa_resultante("en_curso", "maqueta") == "maqueta"
+        assert climod.etapa_resultante("maqueta", "en_curso") == "maqueta"
+
+    def test_comando_etapa_aparca_con_fecha(self, bd, capsys):
+        bid = _negocio(bd)
+        climod.cmd_etapa(argparse.Namespace(id=bid, etapa="aparcado",
+                                            fecha="2026-09-15", motivo="Cierra en agosto"))
+        p = bd.execute("SELECT * FROM pipeline WHERE business_id=?", (bid,)).fetchone()
+        assert p["stage"] == "aparcado"
+        assert p["next_action"] == "Cierra en agosto"
+        assert p["next_action_date"] == "2026-09-15"
+        assert "retomar 2026-09-15" in capsys.readouterr().out
+
+    def test_comando_etapa_con_id_inexistente(self, bd):
+        with pytest.raises(SystemExit):
+            climod.cmd_etapa(argparse.Namespace(id=9999, etapa="en_curso",
+                                                fecha=None, motivo=None))
+
+
 class TestCerrados:
     """Un negocio cerrado en la cola cuesta una llamada a un número muerto."""
 
