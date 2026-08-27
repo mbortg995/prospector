@@ -5,6 +5,9 @@ import pytest
 from prospector import places
 from prospector.discover import _dist_km
 
+# El conftest aísla el Llavero de la máquina; aquí se prueba el de verdad.
+_del_llavero_real = places._del_llavero
+
 
 @pytest.fixture
 def con_clave(monkeypatch):
@@ -63,25 +66,25 @@ class TestLlavero:
 
     def test_lee_del_llavero_por_nombre_de_servicio(self, monkeypatch):
         vistos = self._security(monkeypatch)
-        assert places._del_llavero() == "clave-guardada"
+        assert _del_llavero_real() == "clave-guardada"
         assert vistos[0] == ["security", "find-generic-password",
                              "-s", places.LLAVERO, "-w"]
 
     def test_llavero_vacio_devuelve_none(self, monkeypatch):
         self._security(monkeypatch, returncode=44, stdout="")
-        assert places._del_llavero() is None
+        assert _del_llavero_real() is None
 
     def test_fuera_de_macos_no_intenta_el_llavero(self, monkeypatch):
         monkeypatch.setattr(places.sys, "platform", "linux")
         monkeypatch.setattr(places.subprocess, "run",
                             lambda *a, **k: pytest.fail("no debe llamar a security"))
-        assert places._del_llavero() is None
+        assert _del_llavero_real() is None
 
     def test_sin_el_binario_security_no_revienta(self, monkeypatch):
         monkeypatch.setattr(places.sys, "platform", "darwin")
         monkeypatch.setattr(places.subprocess, "run",
                             lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
-        assert places._del_llavero() is None
+        assert _del_llavero_real() is None
 
     def test_guardar_no_captura_la_salida(self, monkeypatch):
         """La clave la teclea el usuario en su terminal: si capturásemos la
@@ -138,14 +141,37 @@ class TestEmparejamiento:
     """Un teléfono mal asignado hace que llames a otro negocio."""
 
     def test_mismo_nombre_y_sitio_casa(self):
-        elegido, motivo = places.elegir([_sitio("Panadería Pepe")], NEGOCIO, _dist_km)
+        elegido, motivo, _ = places.elegir([_sitio("Panadería Pepe")], NEGOCIO, _dist_km)
         assert motivo == "ok"
         assert elegido["similitud"] == 1.0
 
-    def test_mismo_nombre_pero_lejos_no_casa(self):
+    def test_mismo_nombre_pero_en_otro_pueblo_no_casa(self):
         """Hay una Panadería Pepe en cada pueblo."""
-        lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60)
+        lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60)  # ~13 km
         assert places.elegir([lejos], NEGOCIO, _dist_km)[0] is None
+
+    def test_nombre_identico_a_400_metros_si_casa(self):
+        """Salió en la primera pasada real: «Azulejos Marna», parecido 1.000,
+        descartado por 390 m. Las coordenadas de OSM son aproximadas."""
+        cerca = _sitio("Panadería Pepe", lat=39.5913, lon=-0.5397)
+        elegido, motivo, _ = places.elegir([cerca], NEGOCIO, _dist_km)
+        assert motivo == "ok"
+        assert 0.3 < elegido["distancia_km"] < 0.5
+
+    def test_nombre_parecido_a_400_metros_no_casa(self):
+        """A esa distancia se exige el nombre casi exacto."""
+        c = _sitio("Panadería Pepe e Hijos", lat=39.5913, lon=-0.5397)
+        assert places.elegir([c], NEGOCIO, _dist_km)[0] is None
+
+    def test_nombre_muy_distinto_no_casa_ni_encima(self):
+        """«Pepe» podría ser la misma panadería, o el bar del mismo portal.
+        Ante la duda, no se rellena: llamar a otro negocio es peor."""
+        c = _sitio("Pepe", lat=39.58781, lon=-0.53971)
+        assert places.elegir([c], NEGOCIO, _dist_km)[0] is None
+
+    def test_nombre_abreviado_reconocible_si_casa(self):
+        c = _sitio("Panadería Pepe (Llíria)", lat=39.58781, lon=-0.53971)
+        assert places.elegir([c], NEGOCIO, _dist_km)[1] == "ok"
 
     def test_al_lado_pero_otro_negocio_no_casa(self):
         """El bar de al lado está a 20 metros."""
@@ -162,17 +188,67 @@ class TestEmparejamiento:
         assert places.elegir([malo], NEGOCIO, _dist_km)[0] is None
 
     def test_sin_candidatos(self):
-        assert places.elegir([], NEGOCIO, _dist_km) == (None, "sin candidatos")
+        assert places.elegir([], NEGOCIO, _dist_km) == (None, "sin candidatos", None)
 
     def test_elige_el_mas_parecido_entre_varios_validos(self):
         cands = [_sitio("Panadería Pepe e Hijos", pid="places/1"),
                  _sitio("Panadería Pepe", pid="places/2")]
-        elegido, _ = places.elegir(cands, NEGOCIO, _dist_km)
+        elegido, _, _ = places.elegir(cands, NEGOCIO, _dist_km)
         assert elegido["place"]["id"] == "places/2"
 
-    def test_el_motivo_dice_cuantos_se_vieron(self):
-        _, motivo = places.elegir([_sitio("Otra Cosa")], NEGOCIO, _dist_km)
-        assert "1 vistos" in motivo
+
+class TestDescartados:
+    """La consulta ya se pagó: saber por qué se descartó permite revisar el
+    criterio sin volver a pagarla."""
+
+    def test_devuelve_el_mejor_descartado(self):
+        vecino = _sitio("Bar Manolo", lat=39.5879, lon=-0.5398)
+        _, motivo, descartado = places.elegir([vecino], NEGOCIO, _dist_km)
+        assert descartado["place"]["id"] == "places/abc"
+        assert "Bar Manolo" in motivo
+        assert "parecido" in motivo
+
+    def test_el_motivo_lleva_distancia_y_parecido(self):
+        lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60)
+        _, motivo, descartado = places.elegir([lejos], NEGOCIO, _dist_km)
+        assert str(descartado["distancia_km"]) in motivo
+        assert str(descartado["similitud"]) in motivo
+
+    def test_entre_varios_descartados_gana_el_mas_parecido(self):
+        cands = [_sitio("Otra Cosa", lat=39.70, lon=-0.60, pid="places/1"),
+                 _sitio("Panadería Pepe", lat=39.70, lon=-0.60, pid="places/2")]
+        _, _, descartado = places.elegir(cands, NEGOCIO, _dist_km)
+        assert descartado["place"]["id"] == "places/2"
+
+    def test_un_cerrado_se_dice_con_esas_palabras(self):
+        """No es un fallo del emparejamiento: ese negocio ya no existe.
+        Confundir ambas cosas me llevó a tocar el criterio sin motivo."""
+        cerrado = _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY")
+        elegido, motivo, descartado = places.elegir([cerrado], NEGOCIO, _dist_km)
+        assert (elegido, descartado) == (None, None)
+        assert motivo == "1 cerrado definitivamente"
+
+    def test_varios_cerrados_y_sin_coordenadas(self):
+        malo = _sitio("Panadería Pepe", pid="places/2")
+        del malo["location"]
+        motivo = places.elegir(
+            [_sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY"),
+             _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY", pid="places/3"),
+             malo], NEGOCIO, _dist_km)[1]
+        assert motivo == "2 cerrados definitivamente; 1 sin coordenadas"
+
+
+class TestTelefono:
+    @pytest.mark.parametrize("crudo,esperado", [
+        ("962 76 04 85", "962760485"),
+        ("+34 961 23 45 67", "+34961234567"),
+        ("961-234-567", "961234567"),
+        (None, None),
+        ("", None),
+    ])
+    def test_se_guarda_como_los_de_osm(self, crudo, esperado):
+        """OSM los normaliza así; si no, no casan entre sí ni con exclusiones."""
+        assert places._normalizar_telefono(crudo) == esperado
 
 
 class TestBuscar:

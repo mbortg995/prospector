@@ -39,7 +39,7 @@ Funciona y está probado con datos simulados:
   60% de parecido de nombre) porque un teléfono mal puesto hace que llames a
   otro negocio. Todo se cachea en `place_lookups`, fallos incluidos.
 - `cli.py` — comandos: `init discover enriquecer audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 212 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `tests/` — 225 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519

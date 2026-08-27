@@ -36,8 +36,33 @@ CAMPOS = ",".join([
 ])
 
 # Un teléfono mal asignado hace que llames a otro negocio. Mejor no rellenar.
-MAX_KM = 0.3
-MIN_SIMILITUD = 0.6
+#
+# Dos topes rígidos e independientes no valen: en la primera pasada real,
+# «Azulejos Marna» salió con parecido 1.000 y se descartó por estar a 390 m
+# del punto que OSM le pone (el tope eran 300). Las coordenadas de OSM son
+# aproximadas; el nombre exacto en el mismo municipio no lo es.
+#
+# Por eso la regla es graduada: cuanto más lejos, más parecido se exige.
+# Basta cumplir una de las parejas (distancia máxima en km, parecido mínimo).
+REGLAS = [
+    (0.15, 0.55),   # encima: el nombre puede venir abreviado
+    (0.40, 0.85),   # a unas manzanas: se exige el nombre casi exacto
+    (1.20, 0.95),   # lejos: solo si el nombre es prácticamente idéntico
+]
+MAX_KM = max(d for d, _ in REGLAS)
+
+
+def _aceptable(d: float, sim: float) -> bool:
+    return any(d <= dm and sim >= sm for dm, sm in REGLAS)
+
+
+def _normalizar_telefono(t: str | None) -> str | None:
+    """Places los da como «962 76 04 85» y OSM como «+34961234567».
+    Se guardan igual para que casen entre sí y con las exclusiones."""
+    if not t:
+        return None
+    limpio = re.sub(r"[^\d+]", "", t)
+    return limpio or None
 
 
 class PlacesError(RuntimeError):
@@ -161,27 +186,52 @@ def buscar(texto: str, lat: float, lon: float, radio_m: int = 1500,
     raise PlacesError(f"Places falló tras {reintentos} intentos ({ultimo})")
 
 
-def elegir(candidatos: list, negocio: dict, dist_km, max_km: float = MAX_KM,
-           min_similitud: float = MIN_SIMILITUD) -> tuple:
-    """El mejor candidato, o (None, motivo) si ninguno es fiable.
+def elegir(candidatos: list, negocio: dict, dist_km) -> tuple:
+    """El mejor candidato aceptable, o (None, motivo, descartado) si ninguno.
 
-    Exige cercanía **y** parecido de nombre. Con uno solo de los dos se cuela
-    el bar de al lado.
+    Cercanía y parecido se compensan entre sí (ver REGLAS), pero nunca basta
+    uno solo: con solo cercanía se cuela el bar de al lado y con solo el
+    nombre, la Panadería Pepe del pueblo siguiente.
+
+    Cuando no casa nada se devuelve igualmente el mejor descartado. Esa
+    consulta ya se ha pagado: guardar por qué se quedó fuera permite revisar
+    el criterio más adelante sin volver a pagarla.
     """
     if not candidatos:
-        return None, "sin candidatos"
-    mejor, mejor_sim, mejor_d = None, 0.0, None
+        return None, "sin candidatos", None
+    mejor = descartado = None
+    cerrados = sin_coords = 0
     for c in candidatos:
         if c.get("businessStatus") == "CLOSED_PERMANENTLY":
+            cerrados += 1
             continue
         loc = c.get("location") or {}
         if loc.get("latitude") is None:
+            sin_coords += 1
             continue
-        d = dist_km(negocio["lat"], negocio["lon"], loc["latitude"], loc["longitude"])
-        sim = similitud(negocio["name"], (c.get("displayName") or {}).get("text", ""))
-        if d <= max_km and sim >= min_similitud and sim > mejor_sim:
-            mejor, mejor_sim, mejor_d = c, sim, d
-    if mejor is None:
-        return None, f"ningún candidato pasa el filtro ({len(candidatos)} vistos)"
-    return {"place": mejor, "similitud": round(mejor_sim, 3),
-            "distancia_km": round(mejor_d, 3)}, "ok"
+        d = round(dist_km(negocio["lat"], negocio["lon"],
+                          loc["latitude"], loc["longitude"]), 3)
+        sim = round(similitud(negocio["name"],
+                              (c.get("displayName") or {}).get("text", "")), 3)
+        cand = {"place": c, "similitud": sim, "distancia_km": d}
+        if _aceptable(d, sim):
+            if mejor is None or sim > mejor["similitud"]:
+                mejor = cand
+        elif descartado is None or sim > descartado["similitud"]:
+            descartado = cand
+    if mejor is not None:
+        return mejor, "ok", None
+    if descartado is None:
+        # Decir *por qué* no eran utilizables: un «cerrado definitivamente» es
+        # información comercial (ese negocio ya no existe), no un fallo del
+        # emparejamiento, y confundirlos lleva a tocar el criterio sin motivo.
+        partes = []
+        if cerrados:
+            partes.append(f"{cerrados} cerrado{'s' if cerrados > 1 else ''} "
+                          f"definitivamente")
+        if sin_coords:
+            partes.append(f"{sin_coords} sin coordenadas")
+        return None, "; ".join(partes) or f"{len(candidatos)} vistos", None
+    nombre = (descartado["place"].get("displayName") or {}).get("text", "?")
+    return None, (f"«{nombre}» a {descartado['distancia_km']} km "
+                  f"con parecido {descartado['similitud']}"), descartado
