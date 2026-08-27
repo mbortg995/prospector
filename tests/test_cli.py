@@ -298,6 +298,7 @@ class TestEnriquecer:
 
     def _places(self, monkeypatch, resultado):
         llamadas = []
+        monkeypatch.setattr(climod.places, "clave", lambda: "clave-de-prueba")
 
         def buscar(texto, lat, lon, **kw):
             llamadas.append(texto)
@@ -400,6 +401,7 @@ class TestEnriquecer:
         _negocio(bd, oid=1, nombre="Primero")
         _negocio(bd, oid=2, nombre="Segundo")
         llamadas = []
+        monkeypatch.setattr(climod.places, "clave", lambda: "clave-de-prueba")
 
         def buscar(texto, lat, lon, **kw):
             llamadas.append(texto)
@@ -411,6 +413,26 @@ class TestEnriquecer:
         climod.cmd_enriquecer(_args())
         assert bd.execute("SELECT COUNT(*) c FROM place_lookups").fetchone()["c"] == 1
         assert "Parado en 1/2" in capsys.readouterr().err
+
+    def test_sin_clave_para_antes_de_empezar(self, bd, monkeypatch, capsys):
+        """Sin clave no hay nada que hacer: nada de 'parado en 0/N'."""
+        _negocio(bd)
+        monkeypatch.setattr(climod.places, "clave", lambda: (_ for _ in ()).throw(
+            climod.places.SinClave("No hay clave de Google Places.")))
+        monkeypatch.setattr(climod.places, "buscar",
+                            lambda *a, **k: pytest.fail("no debe consultar"))
+        with pytest.raises(SystemExit) as e:
+            climod.cmd_enriquecer(_args())
+        assert e.value.code == 1
+        assert "No hay clave" in capsys.readouterr().err
+        assert bd.execute("SELECT COUNT(*) c FROM place_lookups").fetchone()["c"] == 0
+
+    def test_el_simulacro_no_necesita_clave(self, bd, monkeypatch):
+        """Poder ver cuánto costaría antes de tener la clave."""
+        _negocio(bd)
+        monkeypatch.setattr(climod.places, "clave", lambda: (_ for _ in ()).throw(
+            climod.places.SinClave("sin clave")))
+        climod.cmd_enriquecer(_args(simular=True))  # no revienta
 
     def test_la_busqueda_lleva_nombre_direccion_y_municipio(self, bd, monkeypatch):
         _negocio(bd)

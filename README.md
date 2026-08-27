@@ -153,14 +153,32 @@ Un dato que ya venía de OSM **nunca se pisa**.
 ### Configurar la clave
 
 En Google Cloud: crear proyecto, habilitar **Places API (New)**, crear una clave
-y ponerle restricciones. Luego, en tu shell:
+y ponerle restricciones.
+
+Para guardarla, el Llavero de macOS:
 
 ```bash
-export GOOGLE_PLACES_API_KEY="..."
+prospector clave --guardar
 ```
 
-Nunca en un fichero del repositorio. Consulta la tarifa vigente antes de lanzar
-una pasada grande: los campos de contacto se facturan en el nivel más caro.
+La pide por teclado (no se ve al escribir, se teclea dos veces) y la mete en el
+Llavero bajo `prospector-google-places`. **No queda en el historial del shell ni
+en ningún fichero**, y va cifrada en disco con el resto del Llavero.
+
+Para comprobar que está, sin enseñarla:
+
+```bash
+prospector clave
+```
+
+`prospector clave --borrar` la quita.
+
+También se acepta la variable `GOOGLE_PLACES_API_KEY`, que manda sobre el
+Llavero: útil en un servidor o para probar otra clave un rato sin tocar la
+guardada. Si la usas, exportala en la sesión y no la escribas en `.zshrc`.
+
+Consulta la tarifa vigente antes de lanzar una pasada grande: los campos de
+contacto se facturan en el nivel más caro.
 
 ## Ajustar
 

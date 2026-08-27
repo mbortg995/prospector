@@ -14,6 +14,8 @@ consulta, así que aquí todo está montado para gastar lo mínimo:
 import difflib
 import os
 import re
+import subprocess
+import sys
 import time
 import unicodedata
 
@@ -46,15 +48,70 @@ class SinClave(PlacesError):
     """No hay clave de API configurada."""
 
 
-def clave() -> str:
-    k = (os.environ.get("GOOGLE_PLACES_API_KEY") or "").strip()
-    if not k:
-        raise SinClave(
-            "Falta GOOGLE_PLACES_API_KEY. Crea una clave en Google Cloud con la "
-            "Places API (New) habilitada y expórtala en tu shell. No la escribas "
-            "en ningún fichero del repositorio."
+# Servicio bajo el que vive la clave en el Llavero de macOS. Guardarla ahí
+# evita tenerla en claro en .zshrc, en un .env o en el historial del shell.
+LLAVERO = "prospector-google-places"
+VARIABLE = "GOOGLE_PLACES_API_KEY"
+
+
+def _del_llavero() -> str | None:
+    """Lee la clave del Llavero de macOS. None si no está o no es macOS."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        r = subprocess.run(
+            ["security", "find-generic-password", "-s", LLAVERO, "-w"],
+            capture_output=True, text=True, timeout=15,
         )
-    return k
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (r.stdout.strip() or None) if r.returncode == 0 else None
+
+
+def origen_clave() -> str | None:
+    """De dónde saldría la clave, sin llegar a mirar su valor."""
+    if (os.environ.get(VARIABLE) or "").strip():
+        return "variable de entorno"
+    if _del_llavero():
+        return "Llavero de macOS"
+    return None
+
+
+def guardar_en_llavero() -> None:
+    """Lanza `security` heredando el terminal: la clave la tecleas tú y no
+    pasa por este proceso ni queda en el historial del shell."""
+    if sys.platform != "darwin":
+        raise PlacesError("El Llavero es de macOS. Usa la variable de entorno.")
+    r = subprocess.run(
+        ["security", "add-generic-password", "-a", os.environ.get("USER", "prospector"),
+         "-s", LLAVERO, "-U", "-w"],
+    )
+    if r.returncode != 0:
+        raise PlacesError(f"El Llavero rechazó la clave (código {r.returncode})")
+
+
+def borrar_del_llavero() -> bool:
+    if sys.platform != "darwin":
+        return False
+    r = subprocess.run(["security", "delete-generic-password", "-s", LLAVERO],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def clave() -> str:
+    """La variable de entorno manda; si no, el Llavero."""
+    k = (os.environ.get(VARIABLE) or "").strip()
+    if k:
+        return k
+    k = _del_llavero()
+    if k:
+        return k
+    raise SinClave(
+        f"No hay clave de Google Places. Guárdala en el Llavero con "
+        f"`prospector clave --guardar` (te la pedirá por teclado y no queda en "
+        f"el historial), o expórtala en {VARIABLE}. No la escribas nunca en un "
+        f"fichero del repositorio."
+    )
 
 
 def _normalizar(s: str) -> str:
