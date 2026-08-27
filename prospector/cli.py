@@ -170,6 +170,15 @@ WHERE b.is_chain = 0
 """
 
 
+def cmd_panel(a):
+    from .panel import servir
+    url = f"http://127.0.0.1:{a.puerto}"
+    if not a.sin_abrir:
+        import webbrowser
+        webbrowser.open(url)
+    servir(a.puerto)
+
+
 def cmd_clave(a):
     """Gestiona la clave de Google Places sin que pase por aquí en claro."""
     if a.guardar:
@@ -453,6 +462,11 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("panel", help="panel de control en el navegador")
+    p.add_argument("--puerto", type=int, default=8765)
+    p.add_argument("--sin-abrir", action="store_true", help="no abrir el navegador")
+    p.set_defaults(f=cmd_panel)
 
     p = sub.add_parser("clave", help="comprobar o guardar la clave de Google Places")
     g = p.add_mutually_exclusive_group()

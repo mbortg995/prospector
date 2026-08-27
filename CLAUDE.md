@@ -38,8 +38,10 @@ Funciona y está probado con datos simulados:
   impresa ni en los mensajes de error. Emparejamiento estricto (300 m y
   60% de parecido de nombre) porque un teléfono mal puesto hace que llames a
   otro negocio. Todo se cachea en `place_lookups`, fallos incluidos.
-- `cli.py` — comandos: `init discover enriquecer audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 225 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `panel.py` + `panel.html` — panel local en 127.0.0.1, solo stdlib (`http.server`),
+  sin framework ni CDN. Lista blanca de tareas lanzables y una cada vez.
+- `cli.py` — comandos: `init discover enriquecer audit panel clave cola ficha brief maqueta log excluir embudo export`
+- `tests/` — 248 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519
