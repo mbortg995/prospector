@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS interactions (
     notes        TEXT
 );
 
+-- Cada consulta a Google Places se paga. Se anota lo que devolvió, incluidos
+-- los fallos, para no preguntar dos veces por el mismo negocio.
+CREATE TABLE IF NOT EXISTS place_lookups (
+    business_id  INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+    queried_at   TEXT,
+    matched      INTEGER,   -- 0 = se consultó y ningún candidato era fiable
+    motivo       TEXT,      -- por qué no casó, para poder revisar el criterio
+    place_id     TEXT,
+    similitud    REAL,
+    distancia_km REAL,
+    phone        TEXT,
+    website      TEXT
+);
+
 -- Nunca más volver a molestar a estos. Se respeta en todos los listados.
 CREATE TABLE IF NOT EXISTS exclusions (
     key        TEXT PRIMARY KEY,  -- dominio, teléfono o "osm:node/123"

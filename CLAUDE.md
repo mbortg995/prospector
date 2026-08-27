@@ -32,8 +32,12 @@ Funciona y está probado con datos simulados:
 - `audit.py` — descarga la web, extrae señales, puntúa 0-100 y asigna carril.
 - `db.py` + `schema.sql` — SQLite. `discover` re-ejecutado nunca pisa el estado
   del pipeline.
-- `cli.py` — comandos: `init discover audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 165 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `places.py` — relleno de huecos con Google Places. Clave por
+  `GOOGLE_PLACES_API_KEY`, nunca en fichero. Emparejamiento estricto (300 m y
+  60% de parecido de nombre) porque un teléfono mal puesto hace que llames a
+  otro negocio. Todo se cachea en `place_lookups`, fallos incluidos.
+- `cli.py` — comandos: `init discover enriquecer audit cola ficha brief maqueta log excluir embudo export`
+- `tests/` — 200 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519
@@ -55,7 +59,12 @@ negocios → **95 auditables**, 44 de ellos sin web. Ver "Pendiente".
    - Requisito en ambos casos: **HTML autocontenido** (CSS inline, imágenes en
      base64, sin CDN) para que funcione sin cobertura en un polígono industrial.
    - La pantalla que vende es el **antes/después lado a lado en móvil**.
-4. **Scraper de contenido** del negocio (textos, servicios, horarios) para
+4. **Barrido en rejilla con Places** para encontrar negocios que OSM ni
+   siquiera tiene censados (el caso de Llíria: 40 negocios en todo OSM para
+   23.000 habitantes). Más caro que `enriquecer` y necesita clave de negocio
+   nueva en el esquema (`place_id` como identidad alternativa a `osm_id`).
+
+5. **Scraper de contenido** del negocio (textos, servicios, horarios) para
    alimentar la maqueta. Aún no existe.
 
 ## Convenciones

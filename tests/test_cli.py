@@ -13,6 +13,7 @@ import sys
 import pytest
 
 from prospector import cli as climod
+from prospector import db
 from prospector.cli import slug
 from prospector.discover import LA_POBLA
 
@@ -266,3 +267,153 @@ class TestDiscoverSinRed:
             comarca=None, municipios=None, refrescar_municipios=False,
             desde_json=None, guardar_json=str(destino), simular=True))
         assert json.loads(destino.read_text(encoding="utf-8")) == self.CRUDO
+
+
+@pytest.fixture
+def bd(tmp_path, monkeypatch):
+    """BD temporal alcanzable por los comandos, que abren su propia conexión."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "enriquecer.db")
+    con = db.init()
+    yield con
+    con.close()
+
+
+def _negocio(con, oid=1, nombre="Panadería Pepe", tlf=None, web=None, muni="Llíria"):
+    bid = db.upsert_business(con, {
+        "osm_type": "node", "osm_id": oid, "name": nombre, "category": "bakery",
+        "lat": 39.5878, "lon": -0.5397, "municipality": muni, "address": "Calle Mayor 3",
+        "phone": tlf, "email": None, "website": web, "is_chain": 0, "dist_km": 2.0})
+    con.commit()
+    return bid
+
+
+def _args(**kw):
+    base = dict(limite=25, municipio=None, espera=0, simular=False)
+    return argparse.Namespace(**{**base, **kw})
+
+
+class TestEnriquecer:
+    """Cada consulta se paga: lo que se prueba aquí es no gastar de más
+    y no escribir un teléfono equivocado."""
+
+    def _places(self, monkeypatch, resultado):
+        llamadas = []
+
+        def buscar(texto, lat, lon, **kw):
+            llamadas.append(texto)
+            if isinstance(resultado, Exception):
+                raise resultado
+            return resultado
+
+        monkeypatch.setattr(climod.places, "buscar", buscar)
+        return llamadas
+
+    def test_simular_no_gasta_ni_una_consulta(self, bd, monkeypatch, capsys):
+        _negocio(bd)
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args(simular=True))
+        assert llamadas == []
+        assert "0 consultas hechas" in capsys.readouterr().out
+
+    def test_rellena_el_telefono_que_falta(self, bd, monkeypatch):
+        bid = _negocio(bd)
+        self._places(monkeypatch, [{
+            "id": "places/abc", "displayName": {"text": "Panadería Pepe"},
+            "location": {"latitude": 39.5878, "longitude": -0.5397},
+            "nationalPhoneNumber": "961234567", "websiteUri": "https://pepe.es"}])
+        climod.cmd_enriquecer(_args())
+        b = bd.execute("SELECT phone, website FROM businesses WHERE id=?", (bid,)).fetchone()
+        assert b["phone"] == "961234567"
+        assert b["website"] == "https://pepe.es"
+
+    def test_nunca_pisa_un_dato_que_ya_venia_de_osm(self, bd, monkeypatch):
+        bid = _negocio(bd, tlf="600111222")
+        self._places(monkeypatch, [{
+            "id": "places/abc", "displayName": {"text": "Panadería Pepe"},
+            "location": {"latitude": 39.5878, "longitude": -0.5397},
+            "nationalPhoneNumber": "999999999", "websiteUri": "https://pepe.es"}])
+        climod.cmd_enriquecer(_args())
+        b = bd.execute("SELECT phone, website FROM businesses WHERE id=?", (bid,)).fetchone()
+        assert b["phone"] == "600111222"   # el de OSM manda
+        assert b["website"] == "https://pepe.es"  # este sí faltaba
+
+    def test_un_candidato_dudoso_no_escribe_nada(self, bd, monkeypatch):
+        bid = _negocio(bd)
+        self._places(monkeypatch, [{
+            "id": "places/xyz", "displayName": {"text": "Clínica Dental Sonrisa"},
+            "location": {"latitude": 39.5878, "longitude": -0.5397},
+            "nationalPhoneNumber": "999999999"}])
+        climod.cmd_enriquecer(_args())
+        b = bd.execute("SELECT phone FROM businesses WHERE id=?", (bid,)).fetchone()
+        assert b["phone"] is None
+        fila = bd.execute("SELECT * FROM place_lookups WHERE business_id=?",
+                          (bid,)).fetchone()
+        assert fila["matched"] == 0
+        assert "filtro" in fila["motivo"]
+
+    def test_no_se_pregunta_dos_veces_por_el_mismo(self, bd, monkeypatch):
+        """Un fallo también se paga: queda anotado igual."""
+        _negocio(bd)
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args())
+        climod.cmd_enriquecer(_args())
+        assert len(llamadas) == 1
+
+    def test_el_limite_topa_el_gasto(self, bd, monkeypatch):
+        for i in range(5):
+            _negocio(bd, oid=i, nombre=f"Negocio {i}")
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args(limite=2))
+        assert len(llamadas) == 2
+
+    def test_primero_los_que_no_tienen_ninguna_via_de_contacto(self, bd, monkeypatch):
+        _negocio(bd, oid=1, nombre="Con teléfono", tlf="961234567")
+        _negocio(bd, oid=2, nombre="Sin nada")
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args(limite=1))
+        assert "Sin nada" in llamadas[0]
+
+    def test_las_cadenas_no_se_consultan(self, bd, monkeypatch):
+        bd.execute("UPDATE businesses SET is_chain=1 WHERE id=?", (_negocio(bd),))
+        bd.commit()
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args())
+        assert llamadas == []
+
+    def test_los_excluidos_no_se_consultan(self, bd, monkeypatch):
+        _negocio(bd, oid=7)
+        bd.execute("INSERT INTO exclusions VALUES (?,?,?)",
+                   ("osm:node/7", "pidió no volver a llamar", db.now()))
+        bd.commit()
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args())
+        assert llamadas == []
+
+    def test_se_puede_acotar_a_un_municipio(self, bd, monkeypatch):
+        _negocio(bd, oid=1, nombre="De Llíria", muni="Llíria")
+        _negocio(bd, oid=2, nombre="De Bétera", muni="Bétera")
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args(municipio="Bétera"))
+        assert len(llamadas) == 1 and "De Bétera" in llamadas[0]
+
+    def test_un_fallo_de_la_api_para_pero_guarda_lo_hecho(self, bd, monkeypatch, capsys):
+        _negocio(bd, oid=1, nombre="Primero")
+        _negocio(bd, oid=2, nombre="Segundo")
+        llamadas = []
+
+        def buscar(texto, lat, lon, **kw):
+            llamadas.append(texto)
+            if len(llamadas) == 2:
+                raise climod.places.PlacesError("Google rechaza la clave")
+            return []
+
+        monkeypatch.setattr(climod.places, "buscar", buscar)
+        climod.cmd_enriquecer(_args())
+        assert bd.execute("SELECT COUNT(*) c FROM place_lookups").fetchone()["c"] == 1
+        assert "Parado en 1/2" in capsys.readouterr().err
+
+    def test_la_busqueda_lleva_nombre_direccion_y_municipio(self, bd, monkeypatch):
+        _negocio(bd)
+        llamadas = self._places(monkeypatch, [])
+        climod.cmd_enriquecer(_args())
+        assert llamadas[0] == "Panadería Pepe Calle Mayor 3 Llíria"
