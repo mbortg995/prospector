@@ -72,10 +72,35 @@ class TestContacto:
         assert _telefono({"phone": "+34 961 23 45 67"}) == "+34961234567"
 
     def test_telefono_multiple_toma_el_primero(self):
-        assert _telefono({"phone": "961234567;+34600111222"}) == "961234567"
+        assert _telefono({"phone": "961234567;+34600111222"}) == "+34961234567"
 
     def test_sin_telefono(self):
         assert _telefono({"name": "X"}) is None
+
+
+class TestNormalizarTelefono:
+    """Una sola forma, o los mismos números de OSM y de Places no casan
+    entre sí, ni con las exclusiones, ni sirven para detectar duplicados."""
+
+    @pytest.mark.parametrize("crudo,esperado", [
+        ("962 76 13 46", "+34962761346"),      # como los da Places
+        ("+34 961 23 45 67", "+34961234567"),  # como los da OSM
+        ("961234567", "+34961234567"),         # nueve dígitos: son de España
+        ("0034961234567", "+34961234567"),     # prefijo antiguo
+        ("961-234-567", "+34961234567"),
+        ("+33 1 23 45 67 89", "+33123456789"),  # otro país: se respeta
+        ("", None),
+        (None, None),
+        ("sin dígitos", None),
+    ])
+    def test_forma_canonica(self, crudo, esperado):
+        from prospector.discover import normalizar_telefono
+        assert normalizar_telefono(crudo) == esperado
+
+    def test_es_idempotente(self):
+        from prospector.discover import normalizar_telefono
+        una = normalizar_telefono("962 76 13 46")
+        assert normalizar_telefono(una) == una
 
 
 class TestWeb:

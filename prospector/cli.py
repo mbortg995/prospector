@@ -18,6 +18,7 @@ from .discover import (
     _dist_km,
     descargar,
     descargar_comarca,
+    normalizar_telefono,
     parse_overpass,
 )
 
@@ -168,6 +169,32 @@ WHERE b.is_chain = 0
   AND NOT EXISTS (SELECT 1 FROM exclusions e
                   WHERE e.key = 'osm:' || b.osm_type || '/' || b.osm_id)
 """
+
+
+def cmd_normalizar(a):
+    """Deja los teléfonos ya guardados en la forma canónica +34XXXXXXXXX.
+
+    Los que entraron antes de que la normalización existiera conviven con los
+    nuevos, y dos formas del mismo número no casan entre sí.
+    """
+    con = db.connect()
+    filas = con.execute(
+        "SELECT id, name, phone FROM businesses WHERE phone IS NOT NULL").fetchall()
+    cambios = [(r, normalizar_telefono(r["phone"])) for r in filas]
+    cambios = [(r, nuevo) for r, nuevo in cambios if nuevo != r["phone"]]
+
+    if not cambios:
+        print(f"Los {len(filas)} teléfonos ya están en forma canónica.")
+        return
+    for r, nuevo in cambios:
+        print(f"  #{r['id']:>4} {r['name'][:32]:<32} {r['phone']!r} → {nuevo!r}")
+    if a.simular:
+        print(f"\n(simulacro: {len(cambios)} sin tocar)")
+        return
+    for r, nuevo in cambios:
+        con.execute("UPDATE businesses SET phone=? WHERE id=?", (nuevo, r["id"]))
+    con.commit()
+    print(f"\n{len(cambios)} de {len(filas)} normalizados.")
 
 
 def cmd_panel(a):
@@ -462,6 +489,10 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("normalizar", help="dejar los teléfonos guardados en forma canónica")
+    p.add_argument("--simular", action="store_true", help="enseñar los cambios sin aplicarlos")
+    p.set_defaults(f=cmd_normalizar)
 
     p = sub.add_parser("panel", help="panel de control en el navegador")
     p.add_argument("--puerto", type=int, default=8765)

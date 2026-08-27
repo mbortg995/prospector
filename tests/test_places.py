@@ -239,16 +239,11 @@ class TestDescartados:
 
 
 class TestTelefono:
-    @pytest.mark.parametrize("crudo,esperado", [
-        ("962 76 04 85", "962760485"),
-        ("+34 961 23 45 67", "+34961234567"),
-        ("961-234-567", "961234567"),
-        (None, None),
-        ("", None),
-    ])
-    def test_se_guarda_como_los_de_osm(self, crudo, esperado):
-        """OSM los normaliza así; si no, no casan entre sí ni con exclusiones."""
-        assert places._normalizar_telefono(crudo) == esperado
+    def test_usa_la_misma_normalizacion_que_osm(self):
+        """Una sola función para las dos fuentes, no dos parecidas."""
+        from prospector.discover import normalizar_telefono
+        assert places._normalizar_telefono is normalizar_telefono
+        assert places._normalizar_telefono("962 76 04 85") == "+34962760485"
 
 
 class TestBuscar:

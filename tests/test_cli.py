@@ -207,6 +207,28 @@ class TestBugsDelPipeline:
         assert lineas[0].startswith("id,name,category")
 
 
+class TestNormalizar:
+    def test_deja_en_forma_canonica_los_ya_guardados(self, bd):
+        _negocio(bd, oid=1, nombre="Con espacios", tlf="962 76 13 46")
+        _negocio(bd, oid=2, nombre="Sin prefijo", tlf="961234567")
+        _negocio(bd, oid=3, nombre="Ya canónico", tlf="+34600111222")
+        climod.cmd_normalizar(argparse.Namespace(simular=False))
+        assert [r[0] for r in bd.execute(
+            "SELECT phone FROM businesses ORDER BY osm_id")] == [
+            "+34962761346", "+34961234567", "+34600111222"]
+
+    def test_simular_no_toca_nada(self, bd):
+        bid = _negocio(bd, tlf="962 76 13 46")
+        climod.cmd_normalizar(argparse.Namespace(simular=True))
+        assert bd.execute("SELECT phone FROM businesses WHERE id=?",
+                          (bid,)).fetchone()[0] == "962 76 13 46"
+
+    def test_no_toca_los_que_ya_estan_bien(self, bd, capsys):
+        _negocio(bd, tlf="+34961234567")
+        climod.cmd_normalizar(argparse.Namespace(simular=False))
+        assert "ya están en forma canónica" in capsys.readouterr().out
+
+
 class TestDiscoverSinRed:
     """--desde-json y --simular existen para poder afinar el parser sin
     gastar consultas contra un servicio comunitario gratuito."""
@@ -324,7 +346,7 @@ class TestEnriquecer:
             "nationalPhoneNumber": "961234567", "websiteUri": "https://pepe.es"}])
         climod.cmd_enriquecer(_args())
         b = bd.execute("SELECT phone, website FROM businesses WHERE id=?", (bid,)).fetchone()
-        assert b["phone"] == "961234567"
+        assert b["phone"] == "+34961234567"  # canónico, como los de OSM
         assert b["website"] == "https://pepe.es"
 
     def test_nunca_pisa_un_dato_que_ya_venia_de_osm(self, bd, monkeypatch):
