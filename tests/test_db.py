@@ -166,3 +166,25 @@ class TestBugsDeDatos:
         monkeypatch.setattr(db, "DB_PATH", destino)
         db.init().close()
         assert destino.exists()
+
+
+class TestMigracion:
+    def test_anade_la_columna_cerrado_a_una_bd_antigua(self, tmp_path):
+        """CREATE TABLE IF NOT EXISTS no toca una tabla que ya está."""
+        ruta = tmp_path / "vieja.db"
+        con = db.init(ruta)
+        con.execute("DROP TABLE place_lookups")
+        con.execute("""CREATE TABLE place_lookups (
+            business_id INTEGER PRIMARY KEY, queried_at TEXT, matched INTEGER,
+            motivo TEXT, place_id TEXT, similitud REAL, distancia_km REAL,
+            phone TEXT, website TEXT)""")
+        con.commit(); con.close()
+
+        con = db.init(ruta)
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(place_lookups)")}
+        assert "cerrado" in cols
+        con.close()
+
+    def test_la_migracion_es_idempotente(self, tmp_path):
+        for _ in range(3):
+            db.init(tmp_path / "x.db").close()

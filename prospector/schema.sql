@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS place_lookups (
     similitud    REAL,
     distancia_km REAL,
     phone        TEXT,
-    website      TEXT
+    website      TEXT,
+    cerrado      INTEGER DEFAULT 0   -- Google lo da por cerrado definitivamente
 );
 
 -- Nunca más volver a molestar a estos. Se respeta en todos los listados.

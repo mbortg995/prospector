@@ -207,6 +207,59 @@ class TestBugsDelPipeline:
         assert lineas[0].startswith("id,name,category")
 
 
+class TestCerrados:
+    """Un negocio cerrado en la cola cuesta una llamada a un número muerto."""
+
+    def _cerrado(self, bd, monkeypatch, nombre="Panadería Pepe"):
+        bid = _negocio(bd)
+        monkeypatch.setattr(climod.places, "clave", lambda: "clave-de-prueba")
+        monkeypatch.setattr(climod.places, "buscar", lambda *a, **k: [{
+            "id": "places/abc", "displayName": {"text": nombre},
+            "location": {"latitude": 39.5878, "longitude": -0.5397},
+            "businessStatus": "CLOSED_PERMANENTLY"}])
+        climod.cmd_enriquecer(_args())
+        return bid
+
+    def test_enriquecer_lo_anota_como_cerrado(self, bd, monkeypatch):
+        bid = self._cerrado(bd, monkeypatch)
+        fila = bd.execute("SELECT * FROM place_lookups WHERE business_id=?",
+                          (bid,)).fetchone()
+        assert fila["cerrado"] == 1
+        assert "cerrado definitivamente" in fila["motivo"]
+
+    def test_un_cerrado_ajeno_no_lo_marca(self, bd, monkeypatch):
+        bid = self._cerrado(bd, monkeypatch, nombre="Clínica Dental Sonrisa")
+        assert bd.execute("SELECT cerrado FROM place_lookups WHERE business_id=?",
+                          (bid,)).fetchone()[0] == 0
+
+    def test_los_saca_del_pipeline_y_los_excluye(self, bd, monkeypatch):
+        bid = self._cerrado(bd, monkeypatch)
+        climod.cmd_cerrados(argparse.Namespace(simular=False))
+        assert bd.execute("SELECT stage FROM pipeline WHERE business_id=?",
+                          (bid,)).fetchone()[0] == "descartado"
+        assert bd.execute("SELECT reason FROM exclusions").fetchone()[0] == \
+            "cerrado definitivamente según Places"
+
+    def test_simular_no_toca_nada(self, bd, monkeypatch):
+        bid = self._cerrado(bd, monkeypatch)
+        climod.cmd_cerrados(argparse.Namespace(simular=True))
+        assert bd.execute("SELECT stage FROM pipeline WHERE business_id=?",
+                          (bid,)).fetchone()[0] == "nuevo"
+
+    def test_no_toca_a_los_que_siguen_abiertos(self, bd, monkeypatch, capsys):
+        _negocio(bd, oid=2, nombre="Sigue abierto", tlf="+34961234567",
+                 web="https://x.es")
+        climod.cmd_cerrados(argparse.Namespace(simular=False))
+        assert "Ningún negocio cerrado" in capsys.readouterr().out
+
+    def test_es_idempotente(self, bd, monkeypatch, capsys):
+        self._cerrado(bd, monkeypatch)
+        climod.cmd_cerrados(argparse.Namespace(simular=False))
+        capsys.readouterr()
+        climod.cmd_cerrados(argparse.Namespace(simular=False))
+        assert "Ningún negocio cerrado" in capsys.readouterr().out
+
+
 class TestNormalizar:
     def test_deja_en_forma_canonica_los_ya_guardados(self, bd):
         _negocio(bd, oid=1, nombre="Con espacios", tlf="962 76 13 46")

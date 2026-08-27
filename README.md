@@ -207,6 +207,21 @@ guardada. Si la usas, exportala en la sesión y no la escribas en `.zshrc`.
 Consulta la tarifa vigente antes de lanzar una pasada grande: los campos de
 contacto se facturan en el nivel más caro.
 
+## Negocios cerrados
+
+Places sabe cuáles han echado el cierre. Uno de esos en la cola cuesta una
+llamada a un número que ya no contesta.
+
+```bash
+prospector cerrados --simular   # los enseña
+prospector cerrados             # los saca del pipeline y los excluye
+```
+
+Solo se marcan los que Places identificó **como ese negocio**, con el mismo
+listón que un emparejamiento bueno. Que aparezca un local cerrado al lado no
+cierra el tuyo: en la pasada real, esa comprobación salvó 3 de 28 negocios
+que la versión laxa habría descartado estando vivos.
+
 ## Teléfonos
 
 Todos se guardan en forma canónica `+34XXXXXXXXX`, vengan de OSM (`+34 961 23 45 67`)

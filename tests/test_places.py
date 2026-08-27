@@ -141,60 +141,70 @@ class TestEmparejamiento:
     """Un teléfono mal asignado hace que llames a otro negocio."""
 
     def test_mismo_nombre_y_sitio_casa(self):
-        elegido, motivo, _ = places.elegir([_sitio("Panadería Pepe")], NEGOCIO, _dist_km)
-        assert motivo == "ok"
-        assert elegido["similitud"] == 1.0
+        r = places.elegir([_sitio("Panadería Pepe")], NEGOCIO, _dist_km)
+        assert r["motivo"] == "ok"
+        assert r["elegido"]["similitud"] == 1.0
 
     def test_mismo_nombre_pero_en_otro_pueblo_no_casa(self):
         """Hay una Panadería Pepe en cada pueblo."""
         lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60)  # ~13 km
-        assert places.elegir([lejos], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([lejos], NEGOCIO, _dist_km)["elegido"] is None
 
     def test_nombre_identico_a_400_metros_si_casa(self):
         """Salió en la primera pasada real: «Azulejos Marna», parecido 1.000,
         descartado por 390 m. Las coordenadas de OSM son aproximadas."""
         cerca = _sitio("Panadería Pepe", lat=39.5913, lon=-0.5397)
-        elegido, motivo, _ = places.elegir([cerca], NEGOCIO, _dist_km)
-        assert motivo == "ok"
-        assert 0.3 < elegido["distancia_km"] < 0.5
+        r = places.elegir([cerca], NEGOCIO, _dist_km)
+        assert r["motivo"] == "ok"
+        assert 0.3 < r["elegido"]["distancia_km"] < 0.5
 
     def test_nombre_parecido_a_400_metros_no_casa(self):
         """A esa distancia se exige el nombre casi exacto."""
         c = _sitio("Panadería Pepe e Hijos", lat=39.5913, lon=-0.5397)
-        assert places.elegir([c], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([c], NEGOCIO, _dist_km)["elegido"] is None
 
     def test_nombre_muy_distinto_no_casa_ni_encima(self):
         """«Pepe» podría ser la misma panadería, o el bar del mismo portal.
         Ante la duda, no se rellena: llamar a otro negocio es peor."""
         c = _sitio("Pepe", lat=39.58781, lon=-0.53971)
-        assert places.elegir([c], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([c], NEGOCIO, _dist_km)["elegido"] is None
 
     def test_nombre_abreviado_reconocible_si_casa(self):
         c = _sitio("Panadería Pepe (Llíria)", lat=39.58781, lon=-0.53971)
-        assert places.elegir([c], NEGOCIO, _dist_km)[1] == "ok"
+        assert places.elegir([c], NEGOCIO, _dist_km)["motivo"] == "ok"
 
     def test_al_lado_pero_otro_negocio_no_casa(self):
         """El bar de al lado está a 20 metros."""
         vecino = _sitio("Bar Manolo", lat=39.5879, lon=-0.5398)
-        assert places.elegir([vecino], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([vecino], NEGOCIO, _dist_km)["elegido"] is None
 
-    def test_cerrado_definitivamente_se_descarta(self):
+    def test_cerrado_definitivamente_no_se_empareja(self):
         cerrado = _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY")
-        assert places.elegir([cerrado], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([cerrado], NEGOCIO, _dist_km)["elegido"] is None
 
     def test_sin_coordenadas_se_descarta(self):
         malo = _sitio("Panadería Pepe")
         del malo["location"]
-        assert places.elegir([malo], NEGOCIO, _dist_km)[0] is None
+        assert places.elegir([malo], NEGOCIO, _dist_km)["elegido"] is None
 
     def test_sin_candidatos(self):
-        assert places.elegir([], NEGOCIO, _dist_km) == (None, "sin candidatos", None)
+        r = places.elegir([], NEGOCIO, _dist_km)
+        assert r == {"elegido": None, "motivo": "sin candidatos",
+                     "descartado": None, "cerrado": None}
 
     def test_elige_el_mas_parecido_entre_varios_validos(self):
         cands = [_sitio("Panadería Pepe e Hijos", pid="places/1"),
                  _sitio("Panadería Pepe", pid="places/2")]
-        elegido, _, _ = places.elegir(cands, NEGOCIO, _dist_km)
-        assert elegido["place"]["id"] == "places/2"
+        r = places.elegir(cands, NEGOCIO, _dist_km)
+        assert r["elegido"]["place"]["id"] == "places/2"
+
+    def test_un_cerrado_no_tapa_a_uno_abierto_que_si_casa(self):
+        """Si el negocio sigue vivo, manda el vivo."""
+        cands = [_sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY", pid="places/1"),
+                 _sitio("Panadería Pepe", pid="places/2")]
+        r = places.elegir(cands, NEGOCIO, _dist_km)
+        assert r["elegido"]["place"]["id"] == "places/2"
+        assert r["cerrado"] is None
 
 
 class TestDescartados:
@@ -203,39 +213,63 @@ class TestDescartados:
 
     def test_devuelve_el_mejor_descartado(self):
         vecino = _sitio("Bar Manolo", lat=39.5879, lon=-0.5398)
-        _, motivo, descartado = places.elegir([vecino], NEGOCIO, _dist_km)
-        assert descartado["place"]["id"] == "places/abc"
-        assert "Bar Manolo" in motivo
-        assert "parecido" in motivo
+        r = places.elegir([vecino], NEGOCIO, _dist_km)
+        assert r["descartado"]["place"]["id"] == "places/abc"
+        assert "Bar Manolo" in r["motivo"] and "parecido" in r["motivo"]
 
     def test_el_motivo_lleva_distancia_y_parecido(self):
         lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60)
-        _, motivo, descartado = places.elegir([lejos], NEGOCIO, _dist_km)
-        assert str(descartado["distancia_km"]) in motivo
-        assert str(descartado["similitud"]) in motivo
+        r = places.elegir([lejos], NEGOCIO, _dist_km)
+        assert str(r["descartado"]["distancia_km"]) in r["motivo"]
+        assert str(r["descartado"]["similitud"]) in r["motivo"]
 
     def test_entre_varios_descartados_gana_el_mas_parecido(self):
         cands = [_sitio("Otra Cosa", lat=39.70, lon=-0.60, pid="places/1"),
                  _sitio("Panadería Pepe", lat=39.70, lon=-0.60, pid="places/2")]
-        _, _, descartado = places.elegir(cands, NEGOCIO, _dist_km)
-        assert descartado["place"]["id"] == "places/2"
+        r = places.elegir(cands, NEGOCIO, _dist_km)
+        assert r["descartado"]["place"]["id"] == "places/2"
 
-    def test_un_cerrado_se_dice_con_esas_palabras(self):
-        """No es un fallo del emparejamiento: ese negocio ya no existe.
-        Confundir ambas cosas me llevó a tocar el criterio sin motivo."""
+
+class TestCerrados:
+    """Dar por cerrado un negocio vivo cuesta un cliente, así que se le exige
+    el mismo listón que a un emparejamiento bueno."""
+
+    def test_un_cerrado_que_si_es_este_negocio_se_marca(self):
         cerrado = _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY")
-        elegido, motivo, descartado = places.elegir([cerrado], NEGOCIO, _dist_km)
-        assert (elegido, descartado) == (None, None)
-        assert motivo == "1 cerrado definitivamente"
+        r = places.elegir([cerrado], NEGOCIO, _dist_km)
+        assert r["cerrado"]["place"]["id"] == "places/abc"
+        assert r["motivo"] == "«Panadería Pepe» cerrado definitivamente"
+        assert r["elegido"] is None
 
-    def test_varios_cerrados_y_sin_coordenadas(self):
+    def test_un_cerrado_de_otro_negocio_no_marca_nada(self):
+        """El bar de al lado que ha echado el cierre no cierra la panadería."""
+        vecino = _sitio("Bar Manolo", lat=39.5879, lon=-0.5398,
+                        estado="CLOSED_PERMANENTLY")
+        r = places.elegir([vecino], NEGOCIO, _dist_km)
+        assert r["cerrado"] is None
+        assert "ninguno es este" in r["motivo"]
+
+    def test_un_cerrado_lejano_con_el_mismo_nombre_no_marca_nada(self):
+        lejos = _sitio("Panadería Pepe", lat=39.70, lon=-0.60,
+                       estado="CLOSED_PERMANENTLY")
+        assert places.elegir([lejos], NEGOCIO, _dist_km)["cerrado"] is None
+
+    def test_entre_varios_cerrados_gana_el_mas_parecido(self):
+        cands = [_sitio("Panadería Pepe e Hijos", estado="CLOSED_PERMANENTLY",
+                        pid="places/1"),
+                 _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY", pid="places/2")]
+        r = places.elegir(cands, NEGOCIO, _dist_km)
+        assert r["cerrado"]["place"]["id"] == "places/2"
+
+    def test_varios_cerrados_ajenos_y_sin_coordenadas(self):
         malo = _sitio("Panadería Pepe", pid="places/2")
         del malo["location"]
-        motivo = places.elegir(
-            [_sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY"),
-             _sitio("Panadería Pepe", estado="CLOSED_PERMANENTLY", pid="places/3"),
-             malo], NEGOCIO, _dist_km)[1]
-        assert motivo == "2 cerrados definitivamente; 1 sin coordenadas"
+        r = places.elegir(
+            [_sitio("Otra Cosa", estado="CLOSED_PERMANENTLY"),
+             _sitio("Otra Más", estado="CLOSED_PERMANENTLY", pid="places/3"),
+             malo], NEGOCIO, _dist_km)
+        assert r["motivo"] == ("2 cerrados definitivamente, ninguno es este; "
+                               "1 sin coordenadas")
 
 
 class TestTelefono:

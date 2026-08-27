@@ -31,9 +31,21 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return con
 
 
+def _migrar(con: sqlite3.Connection) -> None:
+    """Columnas añadidas después de que existieran BD en uso.
+
+    `CREATE TABLE IF NOT EXISTS` no toca una tabla que ya está, así que las
+    columnas nuevas hay que añadirlas a mano.
+    """
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(place_lookups)")}
+    if cols and "cerrado" not in cols:
+        con.execute("ALTER TABLE place_lookups ADD COLUMN cerrado INTEGER DEFAULT 0")
+
+
 def init(path: Path | None = None) -> sqlite3.Connection:
     con = connect(path)
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
+    _migrar(con)
     con.commit()
     return con
 
@@ -110,11 +122,11 @@ def save_lookup(con: sqlite3.Connection, business_id: int, r: dict) -> None:
     con.execute(
         """INSERT OR REPLACE INTO place_lookups
            (business_id, queried_at, matched, motivo, place_id, similitud,
-            distancia_km, phone, website)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+            distancia_km, phone, website, cerrado)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (business_id, now(), int(r.get("matched", 0)), r.get("motivo"),
          r.get("place_id"), r.get("similitud"), r.get("distancia_km"),
-         r.get("phone"), r.get("website")),
+         r.get("phone"), r.get("website"), int(r.get("cerrado", 0))),
     )
 
 
