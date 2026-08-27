@@ -183,25 +183,29 @@ def buscar(texto: str, lat: float, lon: float, radio_m: int = 1500,
     raise PlacesError(f"Places falló tras {reintentos} intentos ({ultimo})")
 
 
-def elegir(candidatos: list, negocio: dict, dist_km) -> tuple:
-    """El mejor candidato aceptable, o (None, motivo, descartado) si ninguno.
+def elegir(candidatos: list, negocio: dict, dist_km) -> dict:
+    """Qué ha encontrado Places para este negocio.
 
-    Cercanía y parecido se compensan entre sí (ver REGLAS), pero nunca basta
-    uno solo: con solo cercanía se cuela el bar de al lado y con solo el
-    nombre, la Panadería Pepe del pueblo siguiente.
+    Devuelve `{elegido, motivo, descartado, cerrado}`:
 
-    Cuando no casa nada se devuelve igualmente el mejor descartado. Esa
-    consulta ya se ha pagado: guardar por qué se quedó fuera permite revisar
-    el criterio más adelante sin volver a pagarla.
+    - `elegido`: el candidato fiable, si lo hay. Cercanía y parecido se
+      compensan (ver REGLAS), pero nunca basta uno solo: con solo cercanía se
+      cuela el bar de al lado y con solo el nombre, la Panadería Pepe del
+      pueblo siguiente.
+    - `descartado`: el mejor de los que no pasaron. La consulta ya está
+      pagada; guardar por qué se quedó fuera permite revisar el criterio más
+      adelante sin volver a pagarla.
+    - `cerrado`: un candidato **que sí es este negocio** y que Google da por
+      cerrado definitivamente. Se le exige el mismo listón que a un
+      emparejamiento bueno: dar por cerrado un negocio vivo cuesta un cliente,
+      así que no vale con que aparezca por ahí un cerrado cualquiera.
     """
     if not candidatos:
-        return None, "sin candidatos", None
-    mejor = descartado = None
+        return {"elegido": None, "motivo": "sin candidatos",
+                "descartado": None, "cerrado": None}
+    mejor = descartado = cerrado = None
     cerrados = sin_coords = 0
     for c in candidatos:
-        if c.get("businessStatus") == "CLOSED_PERMANENTLY":
-            cerrados += 1
-            continue
         loc = c.get("location") or {}
         if loc.get("latitude") is None:
             sin_coords += 1
@@ -211,24 +215,38 @@ def elegir(candidatos: list, negocio: dict, dist_km) -> tuple:
         sim = round(similitud(negocio["name"],
                               (c.get("displayName") or {}).get("text", "")), 3)
         cand = {"place": c, "similitud": sim, "distancia_km": d}
+
+        if c.get("businessStatus") == "CLOSED_PERMANENTLY":
+            cerrados += 1
+            if _aceptable(d, sim) and (cerrado is None or sim > cerrado["similitud"]):
+                cerrado = cand
+            continue
         if _aceptable(d, sim):
             if mejor is None or sim > mejor["similitud"]:
                 mejor = cand
         elif descartado is None or sim > descartado["similitud"]:
             descartado = cand
+
+    def nombre(cand):
+        return (cand["place"].get("displayName") or {}).get("text", "?")
+
     if mejor is not None:
-        return mejor, "ok", None
-    if descartado is None:
-        # Decir *por qué* no eran utilizables: un «cerrado definitivamente» es
-        # información comercial (ese negocio ya no existe), no un fallo del
-        # emparejamiento, y confundirlos lleva a tocar el criterio sin motivo.
-        partes = []
-        if cerrados:
-            partes.append(f"{cerrados} cerrado{'s' if cerrados > 1 else ''} "
-                          f"definitivamente")
-        if sin_coords:
-            partes.append(f"{sin_coords} sin coordenadas")
-        return None, "; ".join(partes) or f"{len(candidatos)} vistos", None
-    nombre = (descartado["place"].get("displayName") or {}).get("text", "?")
-    return None, (f"«{nombre}» a {descartado['distancia_km']} km "
-                  f"con parecido {descartado['similitud']}"), descartado
+        return {"elegido": mejor, "motivo": "ok", "descartado": None,
+                "cerrado": None}
+    if cerrado is not None:
+        return {"elegido": None, "descartado": None, "cerrado": cerrado,
+                "motivo": f"«{nombre(cerrado)}» cerrado definitivamente"}
+    if descartado is not None:
+        return {"elegido": None, "descartado": descartado, "cerrado": None,
+                "motivo": (f"«{nombre(descartado)}» a {descartado['distancia_km']} km "
+                           f"con parecido {descartado['similitud']}")}
+    # Ningún candidato utilizable. Un cerrado que además no casa no es un
+    # criterio estricto: es otro negocio distinto que ya no existe.
+    partes = []
+    if cerrados:
+        partes.append(f"{cerrados} cerrado{'s' if cerrados > 1 else ''} "
+                      f"definitivamente, ninguno es este")
+    if sin_coords:
+        partes.append(f"{sin_coords} sin coordenadas")
+    return {"elegido": None, "descartado": None, "cerrado": None,
+            "motivo": "; ".join(partes) or f"{len(candidatos)} vistos"}

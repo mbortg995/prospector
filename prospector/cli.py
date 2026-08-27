@@ -171,6 +171,42 @@ WHERE b.is_chain = 0
 """
 
 
+def cmd_cerrados(a):
+    """Saca del pipeline los negocios que Google da por cerrados.
+
+    Un negocio cerrado en la cola cuesta una llamada a un número que ya no
+    contesta. Solo se marcan los que Places identificó **como ese negocio**,
+    con el mismo listón que un emparejamiento bueno.
+    """
+    con = db.init()  # asegura la columna `cerrado` en BD antiguas
+    filas = con.execute(
+        """SELECT b.id, b.name, b.municipality, b.phone, l.motivo, l.similitud,
+                  l.distancia_km, p.stage
+           FROM place_lookups l
+           JOIN businesses b ON b.id = l.business_id
+           JOIN pipeline p ON p.business_id = b.id
+           WHERE l.cerrado = 1 AND p.stage != 'descartado'
+           ORDER BY b.municipality, b.name""").fetchall()
+    if not filas:
+        print("Ningún negocio cerrado pendiente de sacar del pipeline.")
+        return
+    for r in filas:
+        print(f"  #{r['id']:>4} {r['name'][:32]:<32} {r['municipality'] or '?':<22} "
+              f"parecido {r['similitud']}")
+    if a.simular:
+        print(f"\n(simulacro: {len(filas)} sin tocar)")
+        return
+    for r in filas:
+        b = con.execute("SELECT osm_type, osm_id FROM businesses WHERE id=?",
+                        (r["id"],)).fetchone()
+        con.execute("INSERT OR REPLACE INTO exclusions VALUES (?,?,?)",
+                    (f"osm:{b['osm_type']}/{b['osm_id']}",
+                     "cerrado definitivamente según Places", db.now()))
+        db.set_stage(con, r["id"], "descartado")
+    con.commit()
+    print(f"\n{len(filas)} sacados del pipeline y anotados para no volver a llamar.")
+
+
 def cmd_normalizar(a):
     """Deja los teléfonos ya guardados en la forma canónica +34XXXXXXXXX.
 
@@ -282,7 +318,8 @@ def cmd_enriquecer(a):
             print(f"Parado en {i-1}/{len(filas)}. Lo consultado queda guardado.",
                   file=sys.stderr)
             break
-        elegido, motivo, descartado = places.elegir(candidatos, dict(r), _dist_km)
+        res = places.elegir(candidatos, dict(r), _dist_km)
+        elegido, motivo = res["elegido"], res["motivo"]
         if elegido:
             casados += 1
             pl = elegido["place"]
@@ -298,13 +335,15 @@ def cmd_enriquecer(a):
             marca = "+" + "+".join(nuevos) if nuevos else "ya lo teníamos"
             print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {marca}")
         else:
-            # La consulta ya está pagada: se guarda el mejor descartado con
-            # su parecido y distancia, para poder revisar el criterio gratis.
-            datos = {"matched": 0, "motivo": motivo}
-            if descartado:
-                datos.update(place_id=descartado["place"].get("id"),
-                             similitud=descartado["similitud"],
-                             distancia_km=descartado["distancia_km"])
+            # La consulta ya está pagada: se guarda el candidato con su
+            # parecido y distancia, para poder revisar el criterio gratis.
+            datos = {"matched": 0, "motivo": motivo,
+                     "cerrado": 1 if res["cerrado"] else 0}
+            otro = res["cerrado"] or res["descartado"]
+            if otro:
+                datos.update(place_id=otro["place"].get("id"),
+                             similitud=otro["similitud"],
+                             distancia_km=otro["distancia_km"])
             print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {motivo}")
         db.save_lookup(con, r["id"], datos)
         con.commit()
@@ -489,6 +528,10 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("cerrados", help="sacar del pipeline los negocios cerrados")
+    p.add_argument("--simular", action="store_true", help="enseñarlos sin tocar nada")
+    p.set_defaults(f=cmd_cerrados)
 
     p = sub.add_parser("normalizar", help="dejar los teléfonos guardados en forma canónica")
     p.add_argument("--simular", action="store_true", help="enseñar los cambios sin aplicarlos")
