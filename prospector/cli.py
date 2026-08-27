@@ -12,8 +12,12 @@ from pathlib import Path
 
 from . import db
 from .audit import auditar
-from .discover import LA_POBLA, descargar, parse_overpass
+from .discover import COMARCA, LA_POBLA, descargar, descargar_comarca, parse_overpass
 
+CACHE = Path(
+    os.environ.get("PROSPECTOR_CACHE")
+    or Path(__file__).resolve().parent.parent / ".cache"
+).expanduser()
 MOCKUPS = Path(
     os.environ.get("PROSPECTOR_MAQUETAS")
     or Path(__file__).resolve().parent.parent / "maquetas"
@@ -78,14 +82,28 @@ def resumen_censo(negocios: list) -> None:
 def cmd_discover(a):
     centro = (a.lat, a.lon)
 
+    aviso = lambda m: print(f"  {m}", file=sys.stderr)  # noqa: E731
+
     if a.desde_json:
         # Reparsear un volcado no gasta ni una consulta a Overpass.
         print(f"Leyendo {a.desde_json} (sin red)...", file=sys.stderr)
         datos = json.loads(Path(a.desde_json).read_text(encoding="utf-8"))
-    else:
+    elif a.radius:
+        # Modo círculo: para salirse de la comarca a propósito.
         print(f"Consultando Overpass en {a.radius/1000:.0f} km...", file=sys.stderr)
-        datos = descargar(a.radius, centro, espera=a.espera,
-                          aviso=lambda m: print(f"  {m}", file=sys.stderr))
+        datos = descargar(a.radius, centro, espera=a.espera, aviso=aviso)
+        if a.guardar_json:
+            Path(a.guardar_json).write_text(
+                json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+            print(f"  crudo guardado en {a.guardar_json}", file=sys.stderr)
+    else:
+        print(f"Censando «{a.comarca}» municipio a municipio...", file=sys.stderr)
+        datos = descargar_comarca(
+            a.comarca, espera=a.espera, aviso=aviso, solo=a.municipios,
+            cache=CACHE / "municipios.json", refrescar=a.refrescar_municipios)
+        if datos.get("_fallidos"):
+            print(f"  reintenta con: --municipios {' '.join(datos['_fallidos'])}",
+                  file=sys.stderr)
         if a.guardar_json:
             Path(a.guardar_json).write_text(
                 json.dumps(datos, ensure_ascii=False), encoding="utf-8")
@@ -280,8 +298,16 @@ def main():
     sub.add_parser("init").set_defaults(f=cmd_init)
 
     p = sub.add_parser("discover", help="censar negocios vía OSM")
-    p.add_argument("--radius", type=int, default=15000)
-    p.add_argument("--lat", type=float, default=LA_POBLA[0])
+    p.add_argument("--comarca", default=COMARCA,
+                   help="ámbito por defecto; OSM la tiene como relación propia")
+    p.add_argument("--municipios", nargs="+", metavar="NOMBRE",
+                   help="censar solo estos, para reintentar los que fallaron")
+    p.add_argument("--refrescar-municipios", action="store_true",
+                   help="volver a preguntar a OSM qué municipios tiene la comarca")
+    p.add_argument("--radius", type=int,
+                   help="modo círculo en metros, en lugar de por comarca")
+    p.add_argument("--lat", type=float, default=LA_POBLA[0],
+                   help="centro desde el que se mide la cercanía")
     p.add_argument("--lon", type=float, default=LA_POBLA[1])
     p.add_argument("--espera", type=float, default=3.0,
                    help="segundos entre teselas (Overpass es gratuito)")

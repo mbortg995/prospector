@@ -25,31 +25,27 @@ Funciona y está probado con datos simulados:
 
 - `discover.py` — Overpass API (OpenStreetMap), sin API key. Filtra franquicias
   por el tag `brand`. Facebook/Instagram como "web" cuenta como *no tener web*.
-  Consulta por bbox con teselado solo si falla, rotación de espejos y volcado
-  del crudo (`--guardar-json` / `--desde-json`).
+  Ámbito por comarca: OSM tiene `el Camp de Túria` como relación admin_level=7,
+  así que se pregunta por sus 16 municipios y se consulta uno a uno. De ahí sale
+  el municipio de cada negocio. Rotación de espejos, tolerancia a municipios
+  caídos y volcado del crudo (`--guardar-json` / `--desde-json`).
 - `audit.py` — descarga la web, extrae señales, puntúa 0-100 y asigna carril.
 - `db.py` + `schema.sql` — SQLite. `discover` re-ejecutado nunca pisa el estado
   del pipeline.
 - `cli.py` — comandos: `init discover audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 143 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `tests/` — 165 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
-**Primera pasada real hecha el 2026-08-27** (radio 15 km desde La Pobla):
-6382 elementos crudos → 1363 negocios → **301 auditables**. Ver "Pendiente".
+**Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519
+negocios → **95 auditables**, 44 de ellos sin web. Ver "Pendiente".
 
 ## Pendiente
 
-1. **Lo que dijo la primera pasada real** (2026-08-27, 15 km, 15 s, una sola
-   consulta):
-   - Solo el **21% de OSM trae `phone`**. De 1363 negocios, 348 con teléfono y
-     72 con email → **301 auditables**, 131 de ellos sin web.
-   - **El radio apunta al sitio equivocado.** La Pobla está en el borde sur de
-     la comarca, así que 15 km se comen l'Horta: Burjassot 58, Manises 44,
-     Paterna 31, Godella 28. Camp de Túria se queda en ~95 auditables, y
-     **Llíria da 5**. Confirmada la sospecha de cobertura floja.
-   - **`addr:city` falta en el 75%.** La columna `municipality` es casi
-     inservible tal cual; hay que derivarla de las coordenadas.
-   Pendiente decidir: acotar a la comarca y/o complementar con Google Places.
+1. **OSM no da para vivir de él.** El censo por comarca da 519 negocios pero
+   solo **95 auditables** (44 sin web): OSM trae `phone` en el 21% de los
+   casos. Llíria, capital de comarca con 23.000 habitantes, tiene 40 negocios
+   en todo OSM. **Decidido: complementar con Google Places** (clave propia,
+   teselado ~1 km). Es el siguiente PR y lo que desbloquea el proyecto.
 2. **Calibrar pesos** de `VALOR_CATEGORIA` y del umbral `score < 20` con datos
    reales, no con los simulados.
 3. **Generador de maquetas** — sin decidir todavía:

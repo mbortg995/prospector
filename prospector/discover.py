@@ -1,37 +1,76 @@
 """Censo de negocios vía Overpass (OpenStreetMap). Gratis, sin API key."""
+import json
 import math
 import re
 import time
 
 import requests
 
-# Espejos de Overpass. Son servicios comunitarios gratuitos: se rota entre
-# ellos ante fallo para no castigar siempre al mismo.
+# Espejos de Overpass, en orden de preferencia. Son servicios comunitarios y
+# se caen por su cuenta: en agosto de 2026, dos de estos tres devolvían 500
+# hasta con una consulta trivial, y tardaban 26 s en hacerlo. Por eso no se
+# rota a ciegas (eso gastaba los reintentos del bueno en servidores muertos):
+# se prueban en orden y el que falla se degrada al final durante esta
+# ejecución. Tras `_TOLERANCIA` fallos se deja de intentar con él.
 MIRRORS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
+_TOLERANCIA = 2
+_fallos_espejo: dict = {}
 OVERPASS = MIRRORS[0]
 UA = {"User-Agent": "prospector-local/1.0"}
 LA_POBLA = (39.5878, -0.5397)
 
+# OSM tiene la comarca como relación administrativa propia (admin_level=7),
+# así que el ámbito no se aproxima con un círculo: se pregunta.
+COMARCA = "el Camp de Túria"
+
 # Categorías que pagan por una web. El resto es ruido.
 # Se consulta por bbox y no por `around` para poder partir el área en teselas
 # cuando Overpass no aguanta la consulta entera.
+# {sel} es el selector de área: una bbox o `area.a`.
+CATEGORIAS = """
+  nwr["shop"]({sel});
+  nwr["craft"]({sel});
+  nwr["office"]({sel});
+  nwr["healthcare"]({sel});
+  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"]({sel});
+  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"]({sel});
+  nwr["leisure"~"^(fitness_centre|sports_centre)$"]({sel});
+"""
+
 QUERY_TMPL = """
 [out:json][timeout:{t}];
 (
-  nwr["shop"]({bbox});
-  nwr["craft"]({bbox});
-  nwr["office"]({bbox});
-  nwr["healthcare"]({bbox});
-  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"]({bbox});
-  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"]({bbox});
-  nwr["leisure"~"^(fitness_centre|sports_centre)$"]({bbox});
-);
+""" + CATEGORIAS + """);
 out center tags;
 """
+
+# Los municipios de la comarca, según la propia OSM.
+Q_MUNICIPIOS = """
+[out:json][timeout:{t}];
+rel["admin_level"="7"]["name"="{comarca}"];
+map_to_area->.c;
+rel(area.c)["admin_level"="8"]["boundary"="administrative"];
+out tags;
+"""
+
+# Por id de área, NUNCA por nombre: `area["name"="Serra"]` casa con cualquier
+# área del mundo que se llame así, y Serra (Espírito Santo, Brasil) tiene medio
+# millón de habitantes. En la primera pasada por comarca metió 536 negocios
+# brasileños en el censo.
+Q_MUNICIPIO = """
+[out:json][timeout:{t}];
+area({aid})->.a;
+(
+""" + CATEGORIAS.replace("{sel}", "area.a") + """);
+out center tags;
+"""
+
+# Overpass numera las áreas de relaciones como 3600000000 + id de la relación.
+AREA_BASE = 3_600_000_000
 
 
 class OverpassError(RuntimeError):
@@ -139,7 +178,10 @@ def parse_overpass(data: dict, centro=LA_POBLA, radio_m: int | None = None) -> l
             "name": name.strip(),
             "category": cat,
             "lat": lat, "lon": lon,
-            "municipality": tags.get("addr:city"),
+            # El municipio derivado del área manda sobre addr:city: este
+            # falta en el 75% de los casos y trae variantes ("l'Eliana" /
+            # "L'Eliana") que romperían cualquier agrupación.
+            "municipality": el.get("_municipio") or tags.get("addr:city"),
             "address": addr,
             "phone": _telefono(tags),
             "email": _email(tags),
@@ -165,28 +207,137 @@ def _cuadrantes(bbox):
             (mlat, w, n, mlon), (mlat, mlon, n, e)]
 
 
-def _pedir(bbox, timeout_q: int = 180, reintentos: int = 3, espera: float = 3.0) -> dict:
-    """Una tesela, rotando de espejo en cada reintento."""
-    q = QUERY_TMPL.format(t=timeout_q, bbox="{:.6f},{:.6f},{:.6f},{:.6f}".format(*bbox))
+def _espejos_vivos() -> list:
+    """Los que aún no han agotado la paciencia en esta ejecución."""
+    vivos = [m for m in MIRRORS if _fallos_espejo.get(m, 0) < _TOLERANCIA]
+    return vivos or list(MIRRORS)  # si han fallado todos, volver a probarlos
+
+
+def _consulta(q: str, timeout_q: int = 180, reintentos: int = 3,
+              espera: float = 3.0) -> dict:
+    """Una consulta a Overpass. Cada vuelta prueba todos los espejos vivos."""
     ultimo = "sin intentos"
     for i in range(reintentos):
-        try:
-            r = requests.post(MIRRORS[i % len(MIRRORS)], data={"data": q},
-                              timeout=timeout_q + 30, headers=UA)
-        except requests.exceptions.RequestException as e:
-            ultimo = f"{type(e).__name__}: {e}"
-        else:
-            if r.status_code == 200:
-                try:
-                    return r.json()
-                except ValueError:
-                    # Overpass corta la respuesta a medias cuando va saturado
-                    ultimo = "respuesta incompleta o no es JSON"
+        for espejo in _espejos_vivos():
+            try:
+                r = requests.post(espejo, data={"data": q},
+                                  timeout=timeout_q + 30, headers=UA)
+            except requests.exceptions.RequestException as e:
+                ultimo = f"{espejo}: {type(e).__name__}: {e}"
             else:
-                ultimo = f"HTTP {r.status_code}"
+                if r.status_code == 200:
+                    try:
+                        datos = r.json()
+                    except ValueError:
+                        # Overpass corta la respuesta a medias cuando va saturado
+                        ultimo = f"{espejo}: respuesta incompleta o no es JSON"
+                    else:
+                        _fallos_espejo[espejo] = 0
+                        return datos
+                else:
+                    ultimo = f"{espejo}: HTTP {r.status_code}"
+            _fallos_espejo[espejo] = _fallos_espejo.get(espejo, 0) + 1
         if i < reintentos - 1:
             time.sleep(espera * 5 * (i + 1))
-    raise OverpassError(f"Overpass falló tras {reintentos} intentos ({ultimo})")
+    raise OverpassError(f"Overpass falló tras {reintentos} vueltas ({ultimo})")
+
+
+def _pedir(bbox, timeout_q: int = 180, **kw) -> dict:
+    """Una tesela rectangular."""
+    return _consulta(
+        QUERY_TMPL.format(t=timeout_q, sel="{:.6f},{:.6f},{:.6f},{:.6f}".format(*bbox)),
+        timeout_q=timeout_q, **kw)
+
+
+def municipios(comarca: str = COMARCA, timeout_q: int = 120, **kw) -> list:
+    """Los municipios de la comarca: [(nombre, id de área), ...].
+
+    Se devuelve el id de área y no solo el nombre porque las consultas
+    posteriores tienen que ir por id: hay municipios homónimos en otros países.
+    """
+    datos = _consulta(Q_MUNICIPIOS.format(t=timeout_q, comarca=comarca),
+                      timeout_q=timeout_q, **kw)
+    munis = sorted(
+        (e["tags"]["name"], AREA_BASE + e["id"])
+        for e in datos.get("elements", [])
+        if e.get("tags", {}).get("name") and e.get("id")
+    )
+    if not munis:
+        raise OverpassError(f"OSM no conoce la comarca «{comarca}»")
+    return munis
+
+
+def municipios_cacheados(comarca: str = COMARCA, cache=None, refrescar: bool = False,
+                         aviso=None, **kw) -> list:
+    """La lista de municipios cambia cada varios años; la consulta que la saca
+    (`map_to_area`) es de las caras. Se guarda en disco."""
+    aviso = aviso or (lambda _: None)
+    if cache and not refrescar and cache.exists():
+        guardado = json.loads(cache.read_text(encoding="utf-8"))
+        if guardado.get("comarca") == comarca:
+            aviso(f"{len(guardado['municipios'])} municipios (de caché)")
+            return [tuple(m) for m in guardado["municipios"]]
+    munis = municipios(comarca, **kw)
+    if cache:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"comarca": comarca, "municipios": munis},
+                                    ensure_ascii=False), encoding="utf-8")
+    return munis
+
+
+def descargar_comarca(comarca: str = COMARCA, reintentos: int = 3,
+                      espera: float = 3.0, aviso=None, solo=None,
+                      cache=None, refrescar: bool = False) -> dict:
+    """Censo por municipios de la comarca.
+
+    Una consulta por municipio en vez de un círculo: el ámbito sale exacto y
+    cada negocio queda etiquetado con su municipio, que es justo lo que OSM no
+    trae en el 75% de los casos. Son consultas pequeñas, no una gigante.
+
+    Un municipio que falle no tira el censo: son 16 consultas, o sea 16
+    ocasiones de que Overpass devuelva un 502. Los fallidos se listan en
+    `_fallidos` para poder reintentarlos con `--municipios` sin repetir el
+    resto. Solo se rinde si no ha salido ni uno.
+    """
+    aviso = aviso or (lambda _: None)
+    munis = municipios_cacheados(comarca, cache=cache, refrescar=refrescar,
+                                 aviso=aviso, reintentos=reintentos, espera=espera)
+    if solo:
+        pedidos = {n.casefold() for n in solo}
+        munis = [m for m in munis if m[0].casefold() in pedidos]
+        if not munis:
+            raise OverpassError(f"ninguno de {list(solo)} está en «{comarca}»")
+        aviso(f"{len(munis)} municipios pedidos a mano")
+    else:
+        aviso(f"{len(munis)} municipios en «{comarca}»")
+
+    elementos, vistos, fallidos = [], set(), []
+    for i, (muni, aid) in enumerate(munis):
+        if i:
+            time.sleep(espera)  # cortesía con un servicio gratuito
+        try:
+            datos = _consulta(Q_MUNICIPIO.format(t=180, aid=aid),
+                              reintentos=reintentos, espera=espera)
+        except OverpassError as e:
+            fallidos.append(muni)
+            aviso(f"{muni}: SIN RESPUESTA ({e})")
+            continue
+        nuevos = 0
+        for el in datos.get("elements", []):
+            clave = (el.get("type"), el.get("id"))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            el["_municipio"] = muni  # viaja en el volcado, sobrevive a --desde-json
+            elementos.append(el)
+            nuevos += 1
+        aviso(f"{muni}: {nuevos}")
+
+    if fallidos and len(fallidos) == len(munis):
+        raise OverpassError(f"ningún municipio respondió ({', '.join(fallidos)})")
+    if fallidos:
+        aviso(f"quedan pendientes: {', '.join(fallidos)}")
+    return {"elements": elementos, "_fallidos": fallidos}
 
 
 def descargar(radius_m: int = 15000, centro=LA_POBLA, reintentos: int = 3,
