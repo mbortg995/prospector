@@ -1,7 +1,8 @@
-"""CLI del prospector. python -m prospector.cli <comando>"""
+"""CLI del prospector. `prospector <comando>` o `python -m prospector.cli <comando>`."""
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -11,7 +12,10 @@ from . import db
 from .audit import auditar
 from .discover import LA_POBLA, fetch
 
-MOCKUPS = Path(__file__).parent / "maquetas"
+MOCKUPS = Path(
+    os.environ.get("PROSPECTOR_MAQUETAS")
+    or Path(__file__).resolve().parent.parent / "maquetas"
+).expanduser()
 ETAPAS = ["nuevo", "maqueta", "contactado", "reunion", "propuesta",
           "ganado", "perdido", "descartado"]
 
@@ -23,7 +27,7 @@ def slug(s: str) -> str:
 
 def cmd_init(a):
     db.init()
-    MOCKUPS.mkdir(exist_ok=True)
+    MOCKUPS.mkdir(parents=True, exist_ok=True)
     print(f"BD lista en {db.DB_PATH}")
 
 

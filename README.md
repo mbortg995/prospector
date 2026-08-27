@@ -3,10 +3,25 @@
 Censo de negocios cercanos → auditoría de obsolescencia web → cola priorizada → seguimiento comercial.
 Todo en un fichero SQLite. Sin servidores, sin cuentas, sin planes free.
 
+## Instalación
+
+macOS bloquea `pip install` global (PEP 668), así que venv:
+
 ```bash
-pip install requests beautifulsoup4
-python3 -m prospector.cli init
+make install
+source .venv/bin/activate
+prospector init
 ```
+
+Sin `make`:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+`prospector <comando>` y `python3 -m prospector.cli <comando>` son equivalentes.
+La BD se crea en la raíz del proyecto; `PROSPECTOR_DB` la mueve a otro sitio.
 
 ## Ciclo semanal
 

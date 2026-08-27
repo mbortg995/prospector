@@ -1,10 +1,22 @@
 """Capa SQLite. Un fichero, cero servidores."""
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "prospector.db"
-SCHEMA = Path(__file__).parent / "schema.sql"
+# El esquema viaja con el paquete; la BD vive fuera de él (es estado, no código).
+SCHEMA = Path(__file__).resolve().parent / "schema.sql"
+
+
+def _db_por_defecto() -> Path:
+    """PROSPECTOR_DB si está definida, si no la raíz del proyecto."""
+    env = os.environ.get("PROSPECTOR_DB")
+    if env:
+        return Path(env).expanduser()
+    return Path(__file__).resolve().parent.parent / "prospector.db"
+
+
+DB_PATH = _db_por_defecto()
 
 
 def now() -> str:

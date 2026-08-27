@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prospector"
+version = "0.1.0"
+description = "Prospección comercial local: censo OSM, auditoría de obsolescencia web y pipeline de venta"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+prospector = "prospector.cli:main"
+
+[tool.setuptools]
+packages = ["prospector"]
+
+[tool.setuptools.package-data]
+prospector = ["schema.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# El scoring de audit.py usa `score += N; señales.append(...)` a propósito:
+# cada señal y su peso en una línea se leen mejor juntos que separados.
+ignore = ["E702"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
