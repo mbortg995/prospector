@@ -145,3 +145,59 @@ class TestInvocacion:
 
     def test_comando_desconocido_falla(self, cli):
         assert cli("inventado", esperar_exito=False).returncode != 0
+
+
+class TestBugsDelPipeline:
+    """Regresiones concretas. Cada test aquí falló antes de su arreglo."""
+
+    def test_log_sin_next_no_borra_la_accion_pendiente(self, cli):
+        """Registrar una llamada no debe hacerte perder la visita ya agendada."""
+        cli("init"); _sembrar(cli.db)
+        cli("log", "1", "llamada", "cita", "--next", "Visita con tablet",
+            "--fecha", "2026-09-03")
+        cli("log", "1", "llamada", "no_contesta")
+        salida = cli("ficha", "1").stdout
+        assert "Visita con tablet" in salida
+        assert "2026-09-03" in salida
+
+    def test_log_no_retrocede_de_etapa(self, cli):
+        """Un 'no contesta' después de una cita no te devuelve a 'contactado'."""
+        cli("init"); _sembrar(cli.db)
+        cli("log", "1", "llamada", "cita")
+        cli("log", "1", "llamada", "no_contesta")
+        assert "etapa: reunion" in cli("ficha", "1").stdout
+
+    def test_log_si_avanza_de_etapa(self, cli):
+        cli("init"); _sembrar(cli.db)
+        cli("log", "1", "llamada", "no_contesta")
+        assert "etapa: contactado" in cli("ficha", "1").stdout
+        cli("log", "1", "llamada", "cita")
+        assert "etapa: reunion" in cli("ficha", "1").stdout
+
+    def test_no_interesado_manda_aunque_sea_hacia_atras(self, cli):
+        """Los carriles terminales siempre ganan: si dice que no, es que no."""
+        cli("init"); _sembrar(cli.db)
+        cli("log", "1", "llamada", "cita")
+        cli("log", "1", "visita", "no_interesado", "--notes", "Se lo lleva un familiar")
+        assert "etapa: perdido" in cli("ficha", "1").stdout
+
+    @pytest.mark.parametrize("args", [
+        ("ficha", "999"),
+        ("maqueta", "999"),
+        ("excluir", "999"),
+        ("log", "999", "llamada", "cita"),
+    ])
+    def test_id_inexistente_falla_limpio(self, cli, args):
+        """Sin traceback y con código de salida distinto de cero."""
+        cli("init"); _sembrar(cli.db)
+        r = cli(*args, esperar_exito=False)
+        assert r.returncode != 0
+        assert "Traceback" not in r.stderr
+        assert "999" in (r.stdout + r.stderr)
+
+    def test_export_vacio_saca_solo_la_cabecera(self, cli):
+        """Un CSV sin filas debe seguir siendo un CSV, no una línea en blanco."""
+        cli("init")
+        lineas = [ln for ln in cli("export").stdout.splitlines() if ln.strip()]
+        assert len(lineas) == 1
+        assert lineas[0].startswith("id,name,category")

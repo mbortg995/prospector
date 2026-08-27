@@ -164,3 +164,19 @@ class TestRangoDeScore:
 
     def test_score_es_entero(self, negocio, sin_red):
         assert isinstance(auditar(negocio)["score"], int)
+
+
+class TestBugsDeAuditoria:
+    def test_web_caida_no_afirma_que_no_hay_https(self, negocio, sin_red):
+        """Si la web no responde no se sabe si tiene HTTPS: es NULL, no falso.
+        Guardar 0 ensucia cualquier recuento posterior de webs sin TLS."""
+        negocio["website"] = "https://ejemplo.es"
+        sin_red["fetch"] = (None, "", False, "ConnectionError")
+        res = auditar(negocio)
+        assert res["track"] == "web_caida"
+        assert res["https_ok"] is None
+
+    def test_web_viva_si_afirma_su_estado_de_https(self, negocio, sin_red):
+        negocio["website"] = "https://ejemplo.es"
+        sin_red["fetch"] = (200, HTML_SIN_VIEWPORT, False, None)
+        assert auditar(negocio)["https_ok"] == 0

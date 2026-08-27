@@ -1,5 +1,6 @@
 """Auditoría de la web del negocio y puntuación de oportunidad (0-100)."""
 import re
+import warnings
 from datetime import UTC, datetime
 
 import requests
@@ -27,7 +28,9 @@ def _fetch(url: str, timeout=12):
         return r.status_code, r.text[:400_000], https_ok, None
     except requests.exceptions.SSLError:
         try:  # existe pero con TLS roto: señal fortísima
-            r = requests.get(url, headers=UA, timeout=timeout, verify=False)
+            with warnings.catch_warnings():  # el aviso de verify=False es ruido
+                warnings.simplefilter("ignore")
+                r = requests.get(url, headers=UA, timeout=timeout, verify=False)
             return r.status_code, r.text[:400_000], False, "ssl_roto"
         except Exception as e:
             return None, "", False, f"ssl:{type(e).__name__}"
@@ -73,7 +76,9 @@ def auditar(biz: dict) -> dict:
         señales.append("no consta web")
     else:
         status, html, https_ok, err = _fetch(biz["website"])
-        res["http_status"], res["https_ok"] = status, int(https_ok)
+        res["http_status"] = status
+        # Si no responde no se sabe si tiene HTTPS: NULL, no 0.
+        res["https_ok"] = int(https_ok) if status is not None else None
 
         # --- Carril B: web caída / dominio muerto ---
         if status is None or status >= 500 or status == 404:

@@ -150,3 +150,69 @@ class TestParseOverpass:
     def test_respuesta_vacia(self):
         assert parse_overpass({"elements": []}) == []
         assert parse_overpass({}) == []
+
+
+class TestFetchOverpass:
+    """Overpass es un servicio comunitario gratuito y se cae a menudo.
+    `fetch` es lo único que separa una pasada de censo de perderla entera."""
+
+    def _respuesta(self, status=200, payload=None):
+        class R:
+            status_code = status
+            def json(self):
+                return payload or {"elements": []}
+        return R()
+
+    def test_devuelve_los_negocios_a_la_primera(self, monkeypatch):
+        from prospector import discover
+        payload = {"elements": [_nodo(name="Bar Ejemplo", amenity="bar")]}
+        monkeypatch.setattr(discover.requests, "post",
+                            lambda *a, **k: self._respuesta(200, payload))
+        assert len(discover.fetch(1000)) == 1
+
+    def test_reintenta_tras_un_error_de_red(self, monkeypatch):
+        """Un timeout en el intento 1 no puede tumbar el censo entero."""
+        from prospector import discover
+        intentos = []
+
+        def post(*a, **k):
+            intentos.append(1)
+            if len(intentos) == 1:
+                raise discover.requests.exceptions.ConnectTimeout("timeout")
+            return self._respuesta(200, {"elements": [_nodo(name="Bar", amenity="bar")]})
+
+        monkeypatch.setattr(discover.requests, "post", post)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        assert len(discover.fetch(1000)) == 1
+        assert len(intentos) == 2
+
+    def test_reintenta_tras_un_429(self, monkeypatch):
+        from prospector import discover
+        intentos = []
+
+        def post(*a, **k):
+            intentos.append(1)
+            return self._respuesta(429 if len(intentos) == 1 else 200)
+
+        monkeypatch.setattr(discover.requests, "post", post)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        discover.fetch(1000)
+        assert len(intentos) == 2
+
+    def test_error_de_red_persistente_da_mensaje_claro(self, monkeypatch):
+        """Antes esto reventaba con UnboundLocalError sobre `r`."""
+        from prospector import discover
+        monkeypatch.setattr(discover.requests, "post", lambda *a, **k: (_ for _ in ()).throw(
+            discover.requests.exceptions.ConnectionError("sin red")))
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="Overpass"):
+            discover.fetch(1000)
+
+    def test_espera_mas_en_cada_reintento(self, monkeypatch):
+        from prospector import discover
+        esperas = []
+        monkeypatch.setattr(discover.requests, "post", lambda *a, **k: self._respuesta(504))
+        monkeypatch.setattr(discover.time, "sleep", esperas.append)
+        with pytest.raises(RuntimeError):
+            discover.fetch(1000)
+        assert esperas == sorted(esperas) and len(esperas) >= 2

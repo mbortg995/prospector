@@ -29,7 +29,7 @@ Funciona y está probado con datos simulados:
 - `db.py` + `schema.sql` — SQLite. `discover` re-ejecutado nunca pisa el estado
   del pipeline.
 - `cli.py` — comandos: `init discover audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 107 tests, ninguno sale a la red. CI en Actions (3.11/3.12/3.13),
+- `tests/` — 125 tests, ninguno sale a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Nunca se ha ejecutado contra la API real de Overpass.** La primera ejecución

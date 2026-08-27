@@ -18,6 +18,27 @@ MOCKUPS = Path(
 ).expanduser()
 ETAPAS = ["nuevo", "maqueta", "contactado", "reunion", "propuesta",
           "ganado", "perdido", "descartado"]
+# El embudo solo avanza. `perdido` y `descartado` no son un paso más: son
+# salidas, y mandan siempre.
+AVANCE = ["nuevo", "maqueta", "contactado", "reunion", "propuesta", "ganado"]
+TERMINALES = {"perdido", "descartado"}
+
+
+def etapa_resultante(actual: str, propuesta: str) -> str:
+    """Un 'no contesta' después de una cita no puede devolverte a 'contactado'."""
+    if propuesta in TERMINALES or actual in TERMINALES:
+        return propuesta
+    if actual not in AVANCE or propuesta not in AVANCE:
+        return propuesta
+    return max(actual, propuesta, key=AVANCE.index)
+
+
+def negocio_o_salir(con, bid: int):
+    b = con.execute("SELECT * FROM businesses WHERE id=?", (bid,)).fetchone()
+    if not b:
+        print(f"No existe el negocio #{bid}.", file=sys.stderr)
+        raise SystemExit(1)
+    return b
 
 
 def slug(s: str) -> str:
@@ -84,9 +105,7 @@ def cmd_cola(a):
 
 def cmd_ficha(a):
     con = db.connect()
-    b = con.execute("SELECT * FROM businesses WHERE id=?", (a.id,)).fetchone()
-    if not b:
-        print("No existe."); return
+    b = negocio_o_salir(con, a.id)
     au = con.execute("SELECT * FROM audits WHERE business_id=? ORDER BY run_at DESC LIMIT 1",
                      (a.id,)).fetchone()
     p = con.execute("SELECT * FROM pipeline WHERE business_id=?", (a.id,)).fetchone()
@@ -131,7 +150,7 @@ def cmd_brief(a):
 
 def cmd_maqueta(a):
     con = db.connect()
-    b = con.execute("SELECT name FROM businesses WHERE id=?", (a.id,)).fetchone()
+    b = negocio_o_salir(con, a.id)
     ruta = a.path or str(MOCKUPS / slug(b["name"]) / "index.html")
     db.set_stage(con, a.id, "maqueta", mockup_path=ruta, mockup_built_at=db.now())
     con.commit()
@@ -140,18 +159,30 @@ def cmd_maqueta(a):
 
 def cmd_log(a):
     con = db.connect()
+    b = negocio_o_salir(con, a.id)
     db.log_interaction(con, a.id, a.kind, a.outcome, a.notes or "")
     etapa = {"cita": "reunion", "interesado": "contactado", "no_interesado": "perdido",
              "no_contesta": "contactado", "volver_a_llamar": "contactado"}.get(a.outcome)
+    destino = "sin cambio de etapa"
     if etapa:
-        db.set_stage(con, a.id, etapa, next_action=a.next, next_action_date=a.fecha)
+        actual = con.execute("SELECT stage FROM pipeline WHERE business_id=?",
+                             (a.id,)).fetchone()["stage"]
+        destino = etapa_resultante(actual, etapa)
+        # Solo se tocan los campos que se han pasado: registrar una llamada no
+        # puede borrar la visita que ya tenías agendada.
+        extra = {}
+        if a.next is not None:
+            extra["next_action"] = a.next
+        if a.fecha is not None:
+            extra["next_action_date"] = a.fecha
+        db.set_stage(con, a.id, destino, **extra)
     con.commit()
-    print(f"Registrado. #{a.id} → {etapa or 'sin cambio de etapa'}")
+    print(f"Registrado. #{a.id} {b['name']} → {destino}")
 
 
 def cmd_excluir(a):
     con = db.connect()
-    b = con.execute("SELECT osm_type, osm_id, name FROM businesses WHERE id=?", (a.id,)).fetchone()
+    b = negocio_o_salir(con, a.id)
     con.execute("INSERT OR REPLACE INTO exclusions VALUES (?,?,?)",
                 (f"osm:{b['osm_type']}/{b['osm_id']}", a.reason, db.now()))
     db.set_stage(con, a.id, "descartado")
@@ -183,9 +214,12 @@ def cmd_embudo(a):
 
 def cmd_export(a):
     con = db.connect()
-    filas = con.execute("SELECT * FROM v_cola LIMIT ?", (a.n,)).fetchall()
+    cur = con.execute("SELECT * FROM v_cola LIMIT ?", (a.n,))
+    filas = cur.fetchall()
     w = csv.writer(sys.stdout)
-    w.writerow(filas[0].keys() if filas else [])
+    # Las columnas salen del cursor, no de la primera fila: un CSV sin filas
+    # sigue siendo un CSV con cabecera.
+    w.writerow([d[0] for d in cur.description])
     for r in filas:
         w.writerow(list(r))
 

@@ -68,15 +68,18 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at TEXT
 );
 
--- Vista de trabajo: lo mejor sin maqueta todavía
-CREATE VIEW IF NOT EXISTS v_cola AS
+-- Vista de trabajo: lo mejor sin maqueta todavía.
+-- Se recrea en cada init: no guarda datos y así las BD viejas se actualizan.
+DROP VIEW IF EXISTS v_cola;
+CREATE VIEW v_cola AS
 SELECT b.id, b.name, b.category, b.municipality, b.dist_km,
        b.phone, b.email, b.website,
        a.track, a.score, p.stage
 FROM businesses b
 JOIN pipeline p ON p.business_id = b.id
 JOIN audits a ON a.id = (
-    SELECT id FROM audits WHERE business_id = b.id ORDER BY run_at DESC LIMIT 1
+    -- run_at solo tiene precisión de segundo: el id desempata.
+    SELECT id FROM audits WHERE business_id = b.id ORDER BY run_at DESC, id DESC LIMIT 1
 )
 WHERE p.stage = 'nuevo'
   AND b.is_chain = 0
