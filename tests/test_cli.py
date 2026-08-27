@@ -350,7 +350,11 @@ class TestEnriquecer:
         fila = bd.execute("SELECT * FROM place_lookups WHERE business_id=?",
                           (bid,)).fetchone()
         assert fila["matched"] == 0
-        assert "filtro" in fila["motivo"]
+        # La consulta ya se pagó: queda por qué se descartó, para poder
+        # revisar el criterio más adelante sin volver a pagarla.
+        assert "Clínica Dental Sonrisa" in fila["motivo"]
+        assert fila["similitud"] is not None
+        assert fila["distancia_km"] is not None
 
     def test_no_se_pregunta_dos_veces_por_el_mismo(self, bd, monkeypatch):
         """Un fallo también se paga: queda anotado igual."""

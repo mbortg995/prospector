@@ -246,7 +246,7 @@ def cmd_enriquecer(a):
             print(f"Parado en {i-1}/{len(filas)}. Lo consultado queda guardado.",
                   file=sys.stderr)
             break
-        elegido, motivo = places.elegir(candidatos, dict(r), _dist_km)
+        elegido, motivo, descartado = places.elegir(candidatos, dict(r), _dist_km)
         if elegido:
             casados += 1
             pl = elegido["place"]
@@ -254,7 +254,7 @@ def cmd_enriquecer(a):
                 "matched": 1, "motivo": None, "place_id": pl.get("id"),
                 "similitud": elegido["similitud"],
                 "distancia_km": elegido["distancia_km"],
-                "phone": pl.get("nationalPhoneNumber"),
+                "phone": places._normalizar_telefono(pl.get("nationalPhoneNumber")),
                 "website": pl.get("websiteUri"),
             }
             nuevos = db.rellenar_contacto(con, r["id"], datos["phone"], datos["website"])
@@ -262,7 +262,13 @@ def cmd_enriquecer(a):
             marca = "+" + "+".join(nuevos) if nuevos else "ya lo teníamos"
             print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {marca}")
         else:
+            # La consulta ya está pagada: se guarda el mejor descartado con
+            # su parecido y distancia, para poder revisar el criterio gratis.
             datos = {"matched": 0, "motivo": motivo}
+            if descartado:
+                datos.update(place_id=descartado["place"].get("id"),
+                             similitud=descartado["similitud"],
+                             distancia_km=descartado["distancia_km"])
             print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {motivo}")
         db.save_lookup(con, r["id"], datos)
         con.commit()

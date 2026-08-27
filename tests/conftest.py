@@ -1,6 +1,6 @@
 import pytest
 
-from prospector import db
+from prospector import db, places
 
 
 @pytest.fixture(autouse=True)
@@ -38,3 +38,14 @@ def negocio():
         "phone": "+34961234567", "email": None, "website": None,
         "is_chain": 0, "dist_km": 5.0,
     }
+
+
+@pytest.fixture(autouse=True)
+def llavero_aislado(monkeypatch):
+    """Ningún test lee el Llavero real de quien ejecuta la suite.
+
+    Sin esto, los tests de "no hay clave configurada" pasan en CI (que no
+    tiene Llavero) y fallan en el portátil de quien sí ha guardado la suya.
+    Los tests del propio Llavero usan `_del_llavero_real`.
+    """
+    monkeypatch.setattr(places, "_del_llavero", lambda: None)

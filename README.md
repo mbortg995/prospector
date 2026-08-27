@@ -143,10 +143,18 @@ están censados pero incompletos y les pone el teléfono y la web que faltan.
 - Se piden solo los campos que se usan: la máscara de campos decide el nivel de
   facturación.
 
-El emparejamiento es **estricto a propósito**: exige estar a menos de 300 m y
-que el nombre se parezca al menos un 60%. Un teléfono mal asignado hace que
-llames a otro negocio, y eso es peor que no tener teléfono. Lo que no casa se
-guarda con el motivo, para poder revisar el criterio sin volver a pagar.
+El emparejamiento es **estricto a propósito**, y cercanía y parecido se
+compensan: encima del punto basta un 55% de parecido, a 400 m se exige un 85%,
+y a más de un kilómetro prácticamente el nombre exacto. Nunca basta uno solo de
+los dos: con solo cercanía se cuela el bar de al lado, y con solo el nombre, la
+Panadería Pepe del pueblo siguiente. Un teléfono mal asignado hace que llames a
+otro negocio, y eso es peor que no tener teléfono.
+
+Lo que no casa se guarda **con el candidato descartado, su parecido y su
+distancia**. Esa consulta ya está pagada: así se puede revisar el criterio
+sin volver a pagarla. Y los negocios que Google da por cerrados se dicen con
+esas palabras, porque eso no es un fallo de emparejamiento sino un negocio que
+ya no existe.
 
 Un dato que ya venía de OSM **nunca se pisa**.
 
