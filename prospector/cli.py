@@ -91,7 +91,8 @@ def cmd_ficha(a):
                      (a.id,)).fetchone()
     p = con.execute("SELECT * FROM pipeline WHERE business_id=?", (a.id,)).fetchone()
     print(f"\n{b['name']}  [#{b['id']}]")
-    print(f"  {b['category']} · {b['address'] or '?'} · {b['municipality'] or '?'} · {b['dist_km']} km")
+    print(f"  {b['category']} · {b['address'] or '?'} · "
+          f"{b['municipality'] or '?'} · {b['dist_km']} km")
     print(f"  tlf {b['phone'] or '—'}   email {b['email'] or '—'}")
     print(f"  web {b['website'] or '—'}")
     if au:
@@ -100,7 +101,8 @@ def cmd_ficha(a):
             print(f"    · {s}")
     print(f"\n  etapa: {p['stage']}"
           + (f"   maqueta: {p['mockup_path']}" if p["mockup_path"] else "")
-          + (f"\n  siguiente: {p['next_action']} ({p['next_action_date']})" if p["next_action"] else ""))
+          + (f"\n  siguiente: {p['next_action']} ({p['next_action_date']})"
+             if p["next_action"] else ""))
     hist = con.execute("SELECT * FROM interactions WHERE business_id=? ORDER BY happened_at",
                        (a.id,)).fetchall()
     for h in hist:
@@ -164,11 +166,13 @@ def cmd_embudo(a):
         c = con.execute("SELECT COUNT(*) c FROM pipeline WHERE stage=?", (e,)).fetchone()["c"]
         print(f"  {e:<12} {'█' * min(c, 40)} {c}")
     print("\nPOR CARRIL (sin contactar aún)")
-    for r in con.execute("SELECT track, COUNT(*) c, ROUND(AVG(score)) m FROM v_cola GROUP BY track ORDER BY c DESC"):
+    for r in con.execute("SELECT track, COUNT(*) c, ROUND(AVG(score)) m FROM v_cola "
+                         "GROUP BY track ORDER BY c DESC"):
         print(f"  {r['track']:<14} {r['c']:>4} negocios · media {r['m']}")
     pend = con.execute("SELECT b.name, p.next_action, p.next_action_date FROM pipeline p "
                        "JOIN businesses b ON b.id=p.business_id "
-                       "WHERE p.next_action_date IS NOT NULL AND p.stage NOT IN ('ganado','perdido','descartado') "
+                       "WHERE p.next_action_date IS NOT NULL "
+                       "AND p.stage NOT IN ('ganado','perdido','descartado') "
                        "ORDER BY p.next_action_date LIMIT 10").fetchall()
     if pend:
         print("\nPRÓXIMAS ACCIONES")

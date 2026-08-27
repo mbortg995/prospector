@@ -80,3 +80,16 @@ Las franquicias se descartan solas por el tag `brand` de OSM: no deciden en loca
 - Pesos de sector: `VALOR_CATEGORIA` en `discover.py`
 - Detección de tecnología antigua: `LEGACY` en `audit.py`
 - Umbral de "web_ok": la línea `if score < 20` en `audit.py`
+
+## Desarrollo
+
+```bash
+make test   # pytest
+make lint   # ruff
+make fmt    # ruff --fix
+```
+
+Los tests no salen a la red: el parser de Overpass se prueba con respuestas de
+ejemplo, la auditoría con dobles de `_fetch` y `_wayback_last`, y el CLI de punta
+a punta contra una BD temporal vía `PROSPECTOR_DB`. CI en GitHub Actions sobre
+Python 3.11, 3.12 y 3.13.

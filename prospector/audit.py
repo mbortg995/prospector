@@ -1,6 +1,6 @@
 """Auditoría de la web del negocio y puntuación de oportunidad (0-100)."""
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -46,7 +46,6 @@ def _wayback_last(url: str):
 
 
 def _copyright_year(text: str):
-    years = re.findall(r"(?:©|&copy;|copyright)\s*(?:19|20)?(\d{2})(\d{2})?", text[:200_000], re.I)
     found = []
     for m in re.finditer(r"(?:©|&copy;|Copyright)[^0-9]{0,20}((?:19|20)\d{2})", text, re.I):
         found.append(int(m.group(1)))
@@ -55,7 +54,7 @@ def _copyright_year(text: str):
 
 def auditar(biz: dict) -> dict:
     """Puntúa. Más alto = mejor oportunidad comercial."""
-    hoy = datetime.now(timezone.utc)
+    hoy = datetime.now(UTC)
     señales, score = [], 0
     cat_val = VALOR_CATEGORIA.get(biz.get("category"), 5)
 
@@ -128,7 +127,7 @@ def auditar(biz: dict) -> dict:
             wb = _wayback_last(biz["website"])
             res["wayback_last"] = wb
             if wb:
-                años = (hoy - datetime.fromisoformat(wb).replace(tzinfo=timezone.utc)).days / 365
+                años = (hoy - datetime.fromisoformat(wb).replace(tzinfo=UTC)).days / 365
                 if años >= 5:
                     score += 18; señales.append(f"sin cambios desde {wb[:4]}")
                 elif años >= 3:

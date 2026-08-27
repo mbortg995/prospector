@@ -1,7 +1,7 @@
 """Capa SQLite. Un fichero, cero servidores."""
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # El esquema viaja con el paquete; la BD vive fuera de él (es estado, no código).
@@ -20,7 +20,7 @@ DB_PATH = _db_por_defecto()
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def connect(path: Path = DB_PATH) -> sqlite3.Connection:
@@ -98,6 +98,7 @@ def set_stage(con: sqlite3.Connection, business_id: int, stage: str, **kw) -> No
 
 def log_interaction(con, business_id: int, kind: str, outcome: str, notes: str = "") -> None:
     con.execute(
-        "INSERT INTO interactions (business_id, happened_at, kind, outcome, notes) VALUES (?,?,?,?,?)",
+        "INSERT INTO interactions (business_id, happened_at, kind, outcome, notes) "
+        "VALUES (?,?,?,?,?)",
         (business_id, now(), kind, outcome, notes),
     )
