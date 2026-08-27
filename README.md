@@ -207,6 +207,17 @@ guardada. Si la usas, exportala en la sesión y no la escribas en `.zshrc`.
 Consulta la tarifa vigente antes de lanzar una pasada grande: los campos de
 contacto se facturan en el nivel más caro.
 
+## Teléfonos
+
+Todos se guardan en forma canónica `+34XXXXXXXXX`, vengan de OSM (`+34 961 23 45 67`)
+o de Places (`962 76 04 85`). Sin una sola forma, el mismo número de las dos
+fuentes no casa consigo mismo, ni con las exclusiones, ni sirve para detectar
+duplicados. Los nueve dígitos sueltos se asumen españoles; lo que trae otro
+prefijo internacional se respeta.
+
+`prospector normalizar` deja en forma canónica los que se guardaron antes de
+que existiera la normalización. Es idempotente y tiene `--simular`.
+
 ## Ajustar
 
 - Pesos de sector: `VALOR_CATEGORIA` en `discover.py`

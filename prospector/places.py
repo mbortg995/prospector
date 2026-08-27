@@ -21,6 +21,8 @@ import unicodedata
 
 import requests
 
+from .discover import normalizar_telefono
+
 BUSCAR = "https://places.googleapis.com/v1/places:searchText"
 
 # Los campos piden facturación por niveles: los de contacto son los caros.
@@ -56,13 +58,8 @@ def _aceptable(d: float, sim: float) -> bool:
     return any(d <= dm and sim >= sm for dm, sm in REGLAS)
 
 
-def _normalizar_telefono(t: str | None) -> str | None:
-    """Places los da como «962 76 04 85» y OSM como «+34961234567».
-    Se guardan igual para que casen entre sí y con las exclusiones."""
-    if not t:
-        return None
-    limpio = re.sub(r"[^\d+]", "", t)
-    return limpio or None
+# La normalización vive en discover: es la misma para las dos fuentes.
+_normalizar_telefono = normalizar_telefono
 
 
 class PlacesError(RuntimeError):

@@ -122,10 +122,30 @@ def _email(tags: dict):
     return None
 
 
+def normalizar_telefono(t):
+    """Forma canónica: +34XXXXXXXXX.
+
+    OSM los trae como «+34 961 23 45 67» y Places como «962 76 04 85». Sin
+    una sola forma no casan entre sí, ni con las exclusiones, ni se pueden
+    comparar para detectar duplicados. Los nueve dígitos sueltos son de
+    España; lo que ya trae otro prefijo internacional se deja como está.
+    """
+    if not t:
+        return None
+    limpio = re.sub(r"[^\d+]", "", t)
+    if not limpio:
+        return None
+    if re.fullmatch(r"\d{9}", limpio):
+        return "+34" + limpio
+    if re.fullmatch(r"0034\d{9}", limpio):
+        return "+" + limpio[2:]
+    return limpio
+
+
 def _telefono(tags: dict):
     for k in ("phone", "contact:phone", "contact:mobile", "mobile"):
         if tags.get(k):
-            return re.sub(r"[^\d+]", "", tags[k].split(";")[0])
+            return normalizar_telefono(tags[k].split(";")[0])
     return None
 
 
