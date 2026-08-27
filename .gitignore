@@ -1,0 +1,29 @@
+# Base de datos local: es el estado comercial, nunca al repo
+*.db
+*.db-wal
+*.db-shm
+
+# Maquetas generadas
+maquetas/
+
+# Volcados crudos de Overpass
+*.raw.json
+
+# Entorno
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# macOS / editores
+.DS_Store
+.idea/
+.vscode/
