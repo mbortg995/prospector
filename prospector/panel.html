@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prospector</title>
+<style>
+  :root {
+    --fondo: #f6f7f9; --papel: #fff; --tinta: #1a1d21; --suave: #6b7280;
+    --linea: #e3e6ea; --acento: #1f5fbf; --acento-suave: #eaf1fc;
+    --caida: #b3261e; --sinweb: #8a5200; --obsoleta: #1f5fbf; --ok: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #14171a; --papel: #1c2024; --tinta: #e8eaed; --suave: #9aa3ad;
+      --linea: #2c3238; --acento: #7aa7f0; --acento-suave: #1e2a3d;
+      --caida: #f2857c; --sinweb: #e0a458; --obsoleta: #7aa7f0; --ok: #6ee7a8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--tinta);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { background: var(--papel); border-bottom: 1px solid var(--linea);
+           padding: 14px 20px; display: flex; gap: 20px; align-items: baseline;
+           position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+  .cifras { display: flex; gap: 18px; color: var(--suave); font-size: 13px; }
+  .cifras b { color: var(--tinta); font-variant-numeric: tabular-nums; }
+  main { display: grid; grid-template-columns: minmax(0,1.55fr) minmax(0,1fr);
+         gap: 16px; padding: 16px 20px; align-items: start; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .tarjeta { background: var(--papel); border: 1px solid var(--linea);
+             border-radius: 10px; overflow: hidden; }
+  .tarjeta h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+                color: var(--suave); margin: 0; padding: 12px 14px;
+                border-bottom: 1px solid var(--linea); font-weight: 600; }
+  .cuerpo { padding: 14px; }
+  .barra { display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap;
+           border-bottom: 1px solid var(--linea); align-items: center; }
+  select, input, button, textarea { font: inherit; color: inherit;
+    background: var(--papel); border: 1px solid var(--linea);
+    border-radius: 7px; padding: 6px 9px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--acento); color: var(--acento); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primario { background: var(--acento); color: #fff; border-color: var(--acento); }
+  button.primario:hover:not(:disabled) { color: #fff; opacity: .9; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase;
+       letter-spacing: .05em; color: var(--suave); padding: 8px 10px;
+       border-bottom: 1px solid var(--linea); font-weight: 600; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--linea); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--acento-suave); }
+  tbody tr.activa { background: var(--acento-suave); }
+  .pts { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .carril { font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: .04em; }
+  .web_caida { color: var(--caida); } .sin_web { color: var(--sinweb); }
+  .web_obsoleta { color: var(--obsoleta); } .web_ok { color: var(--ok); }
+  .apagado { color: var(--suave); }
+  .senal { padding: 3px 0 3px 14px; position: relative; font-size: 13.5px; }
+  .senal::before { content: "·"; position: absolute; left: 4px; color: var(--suave); }
+  .consola { background: #0f1215; color: #d6dbe1; font: 12px/1.55 ui-monospace,
+             SFMono-Regular, Menlo, monospace; padding: 10px 12px; max-height: 230px;
+             overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .campo { display: grid; gap: 4px; margin-bottom: 9px; }
+  .campo label { font-size: 12px; color: var(--suave); }
+  .fila { display: flex; gap: 8px; flex-wrap: wrap; }
+  .fila > * { flex: 1; min-width: 110px; }
+  .aviso { padding: 12px 14px; color: var(--suave); font-size: 14px; }
+  a { color: var(--acento); }
+  .etiqueta { display: inline-block; font-size: 11px; padding: 2px 7px;
+              border-radius: 20px; background: var(--acento-suave);
+              color: var(--acento); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prospector</h1>
+  <div class="cifras" id="cifras"></div>
+</header>
+
+<main>
+  <div>
+    <div class="tarjeta">
+      <h2>Cola de trabajo</h2>
+      <div class="barra">
+        <select id="fTrack">
+          <option value="">Todos los carriles</option>
+          <option value="web_caida">Web caída</option>
+          <option value="sin_web">Sin web</option>
+          <option value="web_obsoleta">Web obsoleta</option>
+        </select>
+        <select id="fMuni"><option value="">Todos los municipios</option></select>
+        <select id="fN">
+          <option value="50">50</option><option value="100" selected>100</option>
+          <option value="500">500</option>
+        </select>
+        <button onclick="cargarCola()">Actualizar</button>
+      </div>
+      <div id="cola"></div>
+    </div>
+
+    <div class="tarjeta" style="margin-top:16px">
+      <h2>Tareas</h2>
+      <div class="barra">
+        <label class="apagado" style="flex:0 0 auto;font-size:13px">Tope</label>
+        <input id="limite" type="number" value="10" min="1" max="500" style="width:78px">
+        <button id="bAudit" onclick="lanzar('audit')">Auditar webs</button>
+        <button id="bEnriq" onclick="lanzar('enriquecer')">Buscar teléfonos (de pago)</button>
+        <span id="estadoTarea" class="apagado" style="font-size:13px"></span>
+      </div>
+      <div class="consola" id="consola">Sin tareas todavía.</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="tarjeta"><h2>Ficha</h2><div id="ficha" class="aviso">
+      Elige un negocio de la cola.</div></div>
+    <div class="tarjeta" style="margin-top:16px"><h2>Embudo</h2>
+      <div class="cuerpo" id="embudo"></div></div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let seleccion = null;
+
+async function pedir(ruta, opciones) {
+  const r = await fetch(ruta, opciones);
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || "error " + r.status);
+  return d;
+}
+
+async function cargarCola() {
+  const p = new URLSearchParams({
+    track: $("#fTrack").value, municipio: $("#fMuni").value, n: $("#fN").value });
+  const filas = await pedir("/api/cola?" + p);
+  if (!filas.length) { $("#cola").innerHTML =
+    '<div class="aviso">Nada en la cola con ese filtro. ¿Has auditado ya?</div>'; return; }
+  $("#cola").innerHTML = `<table><thead><tr>
+      <th class="pts">Pts</th><th>Carril</th><th>Negocio</th>
+      <th>Municipio</th><th>Teléfono</th><th class="pts">Km</th>
+    </tr></thead><tbody>${filas.map(f => `
+      <tr onclick="verFicha(${f.id}, this)" data-id="${f.id}">
+        <td class="pts">${f.score}</td>
+        <td class="carril ${f.track}">${f.track.replace("_", " ")}</td>
+        <td>${esc(f.name)}</td>
+        <td class="apagado">${esc(f.municipality || "—")}</td>
+        <td>${f.phone ? esc(f.phone) : '<span class="apagado">—</span>'}</td>
+        <td class="pts apagado">${f.dist_km ?? ""}</td>
+      </tr>`).join("")}</tbody></table>`;
+  if (seleccion) {
+    const tr = document.querySelector(`tr[data-id="${seleccion}"]`);
+    if (tr) tr.classList.add("activa");
+  }
+}
+
+async function verFicha(id, tr) {
+  seleccion = id;
+  document.querySelectorAll("tbody tr").forEach(x => x.classList.remove("activa"));
+  if (tr) tr.classList.add("activa");
+  pintarFicha(await pedir("/api/ficha/" + id));
+}
+
+function pintarFicha(d) {
+  const b = d.negocio, a = d.auditoria, p = d.pipeline, pl = d.places;
+  $("#ficha").innerHTML = `<div class="cuerpo">
+    <div style="font-size:17px;font-weight:600">${esc(b.name)}</div>
+    <div class="apagado" style="font-size:13px;margin-bottom:10px">
+      ${esc(b.category)} · ${esc(b.municipality || "?")} · ${b.dist_km} km
+      ${p ? ` · <span class="etiqueta">${esc(p.stage)}</span>` : ""}
+    </div>
+    <div style="font-size:14px">
+      ${b.phone ? `📞 <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>`
+                : '<span class="apagado">sin teléfono</span>'}<br>
+      ${b.website ? `🌐 <a href="${esc(b.website)}" target="_blank" rel="noopener">
+        ${esc(b.website)}</a>` : '<span class="apagado">sin web</span>'}<br>
+      ${b.address ? `<span class="apagado">${esc(b.address)}</span>` : ""}
+    </div>
+    ${a ? `<div style="margin-top:12px">
+      <b>${a.score} puntos</b> <span class="carril ${a.track}">${a.track.replace("_"," ")}</span>
+      <div style="margin-top:5px">${a.signals.map(s =>
+        `<div class="senal">${esc(s)}</div>`).join("")}</div></div>`
+      : '<div class="apagado" style="margin-top:12px">Sin auditar todavía.</div>'}
+    ${pl && !pl.matched ? `<div class="apagado" style="margin-top:10px;font-size:13px">
+      Places: ${esc(pl.motivo)}</div>` : ""}
+    ${p && p.next_action ? `<div style="margin-top:10px;font-size:13.5px">
+      <b>Siguiente:</b> ${esc(p.next_action)}
+      <span class="apagado">(${esc(p.next_action_date || "sin fecha")})</span></div>` : ""}
+    ${d.historial.length ? `<div style="margin-top:10px;font-size:13px">
+      ${d.historial.map(h => `<div class="senal">${h.happened_at.slice(0,10)}
+        ${esc(h.kind)}: ${esc(h.outcome)} ${esc(h.notes || "")}</div>`).join("")}</div>` : ""}
+
+    <div style="margin-top:14px;border-top:1px solid var(--linea);padding-top:12px">
+      <div class="fila">
+        <div class="campo"><label>Qué has hecho</label>
+          <select id="lKind"><option>llamada</option><option>visita</option>
+            <option>whatsapp</option></select></div>
+        <div class="campo"><label>Cómo ha ido</label>
+          <select id="lOutcome"><option>no_contesta</option><option>volver_a_llamar</option>
+            <option>interesado</option><option>cita</option>
+            <option>no_interesado</option></select></div>
+      </div>
+      <div class="campo"><label>Notas</label><input id="lNotes" placeholder="opcional"></div>
+      <div class="fila">
+        <div class="campo"><label>Siguiente paso</label>
+          <input id="lNext" placeholder="Visita con tablet"></div>
+        <div class="campo"><label>Fecha</label><input id="lFecha" type="date"></div>
+      </div>
+      <div class="fila" style="margin-top:4px">
+        <button class="primario" onclick="registrar(${b.id})">Registrar</button>
+        <button onclick="accion('maqueta', ${b.id})">Maqueta hecha</button>
+        <button onclick="excluir(${b.id})">No volver a llamar</button>
+      </div>
+    </div></div>`;
+}
+
+async function registrar(id) {
+  pintarFicha(await pedir("/api/log", {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id, kind: $("#lKind").value, outcome: $("#lOutcome").value,
+      notes: $("#lNotes").value, next: $("#lNext").value, fecha: $("#lFecha").value})}));
+  cargarCola(); cargarEmbudo();
+}
+
+async function accion(ruta, id, extra = {}) {
+  pintarFicha(await pedir("/api/" + ruta, {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id, ...extra})}));
+  cargarCola(); cargarEmbudo();
+}
+
+function excluir(id) {
+  const reason = prompt("Motivo de la exclusión:", "pidió no volver a llamar");
+  if (reason !== null) accion("excluir", id, {reason});
+}
+
+async function cargarEmbudo() {
+  const e = await pedir("/api/embudo");
+  const t = e.totales;
+  $("#cifras").innerHTML = `
+    <span><b>${t.negocios ?? 0}</b> negocios</span>
+    <span><b>${t.contactables ?? 0}</b> contactables</span>
+    <span><b>${t.sin_web ?? 0}</b> sin web</span>`;
+  const max = Math.max(1, ...e.etapas.map(x => x.n));
+  $("#embudo").innerHTML =
+    e.etapas.filter(x => x.n).map(x => `<div style="display:flex;gap:8px;
+      align-items:center;font-size:13.5px;margin-bottom:3px">
+      <span style="width:88px" class="apagado">${x.etapa}</span>
+      <span style="height:9px;border-radius:3px;background:var(--acento);
+        width:${Math.round(x.n / max * 100)}%;min-width:3px"></span>
+      <span class="pts">${x.n}</span></div>`).join("")
+    + (e.carriles.length ? `<div style="margin-top:12px;font-size:13.5px">
+      ${e.carriles.map(c => `<div class="senal">
+        <span class="carril ${c.track}">${c.track.replace("_"," ")}</span>
+        — ${c.n} negocios, media ${c.media}</div>`).join("")}</div>` : "")
+    + (e.pendientes.length ? `<div style="margin-top:12px">
+      <div class="apagado" style="font-size:12px;text-transform:uppercase">Próximas acciones</div>
+      ${e.pendientes.map(p => `<div class="senal">${esc(p.next_action_date)} —
+        ${esc(p.name)}: ${esc(p.next_action)}</div>`).join("")}</div>` : "");
+}
+
+async function lanzar(nombre) {
+  const limite = parseInt($("#limite").value, 10);
+  if (nombre === "enriquecer" &&
+      !confirm(`Se harán hasta ${limite} consultas de pago a Google Places. ¿Sigo?`))
+    return;
+  try { await pedir("/api/tarea", {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({nombre, limite})}); }
+  catch (e) { alert(e.message); return; }
+  seguirTarea();
+}
+
+let temporizador = null;
+async function seguirTarea() {
+  const t = await pedir("/api/tarea");
+  if (t.lineas.length) {
+    const c = $("#consola");
+    c.textContent = t.lineas.join("\n");
+    c.scrollTop = c.scrollHeight;
+  }
+  $("#bAudit").disabled = $("#bEnriq").disabled = t.viva;
+  $("#estadoTarea").textContent = t.viva ? `${t.nombre} en marcha…`
+    : (t.nombre ? `${t.nombre}: terminado` : "");
+  clearTimeout(temporizador);
+  if (t.viva) temporizador = setTimeout(seguirTarea, 1000);
+  else if (t.nombre) { cargarCola(); cargarEmbudo(); }
+}
+
+(async function inicio() {
+  const municipios = await pedir("/api/municipios");
+  $("#fMuni").innerHTML += municipios.map(m =>
+    `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+  await cargarCola(); await cargarEmbudo(); await seguirTarea();
+})();
+</script>
+</body>
+</html>

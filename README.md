@@ -23,7 +23,26 @@ pip install -e ".[dev]"
 `prospector <comando>` y `python3 -m prospector.cli <comando>` son equivalentes.
 La BD se crea en la raíz del proyecto; `PROSPECTOR_DB` la mueve a otro sitio.
 
-## Ciclo semanal
+## Panel de control
+
+```bash
+prospector panel
+```
+
+Abre el navegador en `http://127.0.0.1:8765`. Desde ahí: la cola filtrable por
+carril y municipio, la ficha de cada negocio con sus señales, registrar
+llamadas y visitas, marcar maquetas, excluir, y lanzar `audit` y `enriquecer`
+viendo su salida en vivo.
+
+Escucha **solo en 127.0.0.1**: la BD es el estado comercial entero y no tiene
+por qué asomarse a la red. Los botones solo pueden lanzar `audit` y
+`enriquecer`, y una tarea cada vez. `discover` no está: tarda veinte minutos y
+no es cosa de un botón.
+
+La página no pide nada a internet —ni tipografías ni scripts de CDN—, igual que
+las maquetas.
+
+## Ciclo semanal (por consola)
 
 ```bash
 # 1. Censar (una vez al mes basta; OSM cambia despacio)

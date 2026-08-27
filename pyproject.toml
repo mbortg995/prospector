@@ -26,7 +26,7 @@ prospector = "prospector.cli:main"
 packages = ["prospector"]
 
 [tool.setuptools.package-data]
-prospector = ["schema.sql"]
+prospector = ["schema.sql", "panel.html"]
 
 [tool.ruff]
 line-length = 100
