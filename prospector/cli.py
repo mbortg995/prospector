@@ -5,12 +5,14 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 from . import db
 from .audit import auditar
-from .discover import LA_POBLA, fetch
+from .discover import LA_POBLA, descargar, parse_overpass
 
 MOCKUPS = Path(
     os.environ.get("PROSPECTOR_MAQUETAS")
@@ -52,10 +54,54 @@ def cmd_init(a):
     print(f"BD lista en {db.DB_PATH}")
 
 
+def resumen_censo(negocios: list) -> None:
+    """Lo que hace falta ver tras una pasada: si el censo da para trabajar."""
+    if not negocios:
+        print("\nNingún negocio. Revisa el radio o la cobertura de OSM en la zona.")
+        return
+    utiles = [b for b in negocios if not b["is_chain"]
+              and (b["phone"] or b["email"])]
+    sin_web = [b for b in utiles if not b["website"]]
+    print(f"\n{len(negocios)} negocios · {sum(b['is_chain'] for b in negocios)} cadenas")
+    print(f"{len(utiles)} con vía de contacto (los únicos auditables)")
+    print(f"  de ellos {len(sin_web)} sin web")
+
+    print("\nPOR MUNICIPIO")
+    for m, n in Counter(b["municipality"] or "sin dato" for b in negocios).most_common(12):
+        print(f"  {m[:24]:<24} {n:>4}")
+
+    print("\nPOR SECTOR (top 15)")
+    for cat, n in Counter(b["category"] for b in negocios).most_common(15):
+        print(f"  {cat[:24]:<24} {n:>4}")
+
+
 def cmd_discover(a):
+    centro = (a.lat, a.lon)
+
+    if a.desde_json:
+        # Reparsear un volcado no gasta ni una consulta a Overpass.
+        print(f"Leyendo {a.desde_json} (sin red)...", file=sys.stderr)
+        datos = json.loads(Path(a.desde_json).read_text(encoding="utf-8"))
+    else:
+        print(f"Consultando Overpass en {a.radius/1000:.0f} km...", file=sys.stderr)
+        datos = descargar(a.radius, centro, espera=a.espera,
+                          aviso=lambda m: print(f"  {m}", file=sys.stderr))
+        if a.guardar_json:
+            Path(a.guardar_json).write_text(
+                json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+            print(f"  crudo guardado en {a.guardar_json}", file=sys.stderr)
+
+    crudos = len(datos.get("elements", []))
+    negocios = parse_overpass(datos, centro, radio_m=a.radius)
+    print(f"{crudos} elementos crudos → {len(negocios)} negocios tras filtrar",
+          file=sys.stderr)
+
+    if a.simular:
+        print("\n(simulacro: no se ha tocado la BD)")
+        resumen_censo(negocios)
+        return
+
     con = db.init()
-    print(f"Consultando Overpass en {a.radius/1000:.0f} km...", file=sys.stderr)
-    negocios = fetch(a.radius, (a.lat, a.lon))
     nuevos = 0
     for b in negocios:
         cur = con.execute("SELECT 1 FROM businesses WHERE osm_type=? AND osm_id=?",
@@ -65,6 +111,7 @@ def cmd_discover(a):
     con.commit()
     tot = con.execute("SELECT COUNT(*) c FROM businesses").fetchone()["c"]
     print(f"{len(negocios)} encontrados · {nuevos} nuevos · {tot} en BD")
+    resumen_censo(negocios)
 
 
 def cmd_audit(a):
@@ -77,6 +124,8 @@ def cmd_audit(a):
     filas = con.execute(q, (a.limit,)).fetchall()
     print(f"Auditando {len(filas)}...", file=sys.stderr)
     for i, r in enumerate(filas, 1):
+        if i > 1:
+            time.sleep(a.espera)  # cortesía: cada web son 2 peticiones ajenas
         res = auditar(dict(r))
         db.save_audit(con, r["id"], res)
         if i % 10 == 0:
@@ -234,11 +283,21 @@ def main():
     p.add_argument("--radius", type=int, default=15000)
     p.add_argument("--lat", type=float, default=LA_POBLA[0])
     p.add_argument("--lon", type=float, default=LA_POBLA[1])
+    p.add_argument("--espera", type=float, default=3.0,
+                   help="segundos entre teselas (Overpass es gratuito)")
+    p.add_argument("--guardar-json", metavar="RUTA",
+                   help="volcar la respuesta cruda para reparsear sin gastar consultas")
+    p.add_argument("--desde-json", metavar="RUTA",
+                   help="parsear un volcado previo, sin salir a la red")
+    p.add_argument("--simular", action="store_true",
+                   help="enseñar el resumen sin escribir en la BD")
     p.set_defaults(f=cmd_discover)
 
     p = sub.add_parser("audit", help="auditar webs y puntuar")
     p.add_argument("--limit", type=int, default=100)
     p.add_argument("--reaudit", action="store_true")
+    p.add_argument("--espera", type=float, default=1.0,
+                   help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
 
     p = sub.add_parser("cola", help="mejores oportunidades sin trabajar")

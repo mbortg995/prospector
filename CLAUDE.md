@@ -25,22 +25,31 @@ Funciona y está probado con datos simulados:
 
 - `discover.py` — Overpass API (OpenStreetMap), sin API key. Filtra franquicias
   por el tag `brand`. Facebook/Instagram como "web" cuenta como *no tener web*.
+  Consulta por bbox con teselado solo si falla, rotación de espejos y volcado
+  del crudo (`--guardar-json` / `--desde-json`).
 - `audit.py` — descarga la web, extrae señales, puntúa 0-100 y asigna carril.
 - `db.py` + `schema.sql` — SQLite. `discover` re-ejecutado nunca pisa el estado
   del pipeline.
 - `cli.py` — comandos: `init discover audit cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 125 tests, ninguno sale a la red. CI en Actions (3.11/3.12/3.13),
+- `tests/` — 143 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
-**Nunca se ha ejecutado contra la API real de Overpass.** La primera ejecución
-de `discover` es también la primera prueba real del parser.
+**Primera pasada real hecha el 2026-08-27** (radio 15 km desde La Pobla):
+6382 elementos crudos → 1363 negocios → **301 auditables**. Ver "Pendiente".
 
 ## Pendiente
 
-1. **Primera pasada real**: `discover --radius 15000` y ver cuántos negocios
-   salen de verdad. La cobertura de OSM en polígonos industriales de Llíria y
-   Bétera es floja; si el censo sale pobre, valorar complementar con Google
-   Places (API key propia, teselado en rejilla de ~1 km).
+1. **Lo que dijo la primera pasada real** (2026-08-27, 15 km, 15 s, una sola
+   consulta):
+   - Solo el **21% de OSM trae `phone`**. De 1363 negocios, 348 con teléfono y
+     72 con email → **301 auditables**, 131 de ellos sin web.
+   - **El radio apunta al sitio equivocado.** La Pobla está en el borde sur de
+     la comarca, así que 15 km se comen l'Horta: Burjassot 58, Manises 44,
+     Paterna 31, Godella 28. Camp de Túria se queda en ~95 auditables, y
+     **Llíria da 5**. Confirmada la sospecha de cobertura floja.
+   - **`addr:city` falta en el 75%.** La columna `municipality` es casi
+     inservible tal cual; hay que derivarla de las coordenadas.
+   Pendiente decidir: acotar a la comarca y/o complementar con Google Places.
 2. **Calibrar pesos** de `VALOR_CATEGORIA` y del umbral `score < 20` con datos
    reales, no con los simulados.
 3. **Generador de maquetas** — sin decidir todavía:

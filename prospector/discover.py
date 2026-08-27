@@ -5,23 +5,37 @@ import time
 
 import requests
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+# Espejos de Overpass. Son servicios comunitarios gratuitos: se rota entre
+# ellos ante fallo para no castigar siempre al mismo.
+MIRRORS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+OVERPASS = MIRRORS[0]
+UA = {"User-Agent": "prospector-local/1.0"}
 LA_POBLA = (39.5878, -0.5397)
 
 # Categorías que pagan por una web. El resto es ruido.
+# Se consulta por bbox y no por `around` para poder partir el área en teselas
+# cuando Overpass no aguanta la consulta entera.
 QUERY_TMPL = """
-[out:json][timeout:300];
+[out:json][timeout:{t}];
 (
-  nwr["shop"](around:{r},{lat},{lon});
-  nwr["craft"](around:{r},{lat},{lon});
-  nwr["office"](around:{r},{lat},{lon});
-  nwr["healthcare"](around:{r},{lat},{lon});
-  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"](around:{r},{lat},{lon});
-  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"](around:{r},{lat},{lon});
-  nwr["leisure"~"^(fitness_centre|sports_centre)$"](around:{r},{lat},{lon});
+  nwr["shop"]({bbox});
+  nwr["craft"]({bbox});
+  nwr["office"]({bbox});
+  nwr["healthcare"]({bbox});
+  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"]({bbox});
+  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"]({bbox});
+  nwr["leisure"~"^(fitness_centre|sports_centre)$"]({bbox});
 );
 out center tags;
 """
+
+
+class OverpassError(RuntimeError):
+    """Overpass no ha podido servir una tesela."""
 
 # Sectores con capacidad y motivo real de pagar una web
 VALOR_CATEGORIA = {
@@ -88,9 +102,19 @@ def _web(tags: dict):
     return None
 
 
-def parse_overpass(data: dict, centro=LA_POBLA) -> list:
-    out = []
+def parse_overpass(data: dict, centro=LA_POBLA, radio_m: int | None = None) -> list:
+    """Convierte la respuesta de Overpass en negocios.
+
+    Deduplica por (tipo, id): una vía que cruza el borde de dos teselas
+    aparece en las dos. Si se pasa `radio_m`, descarta lo que caiga fuera del
+    círculo: la bbox de la consulta es el cuadrado que lo circunscribe y sus
+    esquinas se van hasta un 41% más lejos de lo pedido.
+    """
+    out, vistos = [], set()
     for el in data.get("elements", []):
+        clave = (el.get("type"), el.get("id"))
+        if clave in vistos:
+            continue
         tags = el.get("tags", {})
         name = tags.get("name")
         if not name:
@@ -102,6 +126,10 @@ def parse_overpass(data: dict, centro=LA_POBLA) -> list:
         lon = el.get("lon") or el.get("center", {}).get("lon")
         if lat is None:
             continue
+        dist = _dist_km(centro[0], centro[1], lat, lon)
+        if radio_m is not None and dist * 1000 > radio_m:
+            continue
+        vistos.add(clave)
         addr = " ".join(filter(None, [
             tags.get("addr:street"), tags.get("addr:housenumber"),
         ])).strip() or None
@@ -117,35 +145,88 @@ def parse_overpass(data: dict, centro=LA_POBLA) -> list:
             "email": _email(tags),
             "website": _web(tags),
             "is_chain": int(_es_cadena(tags)),
-            "dist_km": _dist_km(centro[0], centro[1], lat, lon),
+            "dist_km": dist,
         })
     return out
 
 
-def fetch(radius_m: int = 15000, centro=LA_POBLA, retries: int = 3) -> list:
-    """Consulta Overpass con reintentos. Overpass se cae y rate-limita a
-    menudo: un fallo de red no puede tumbar la pasada de censo entera."""
-    q = QUERY_TMPL.format(r=radius_m, lat=centro[0], lon=centro[1])
+def _bbox(centro, radius_m: int):
+    """Cuadrado que circunscribe el círculo de radio `radius_m`."""
+    lat, lon = centro
+    dlat = radius_m / 111_320
+    dlon = radius_m / (111_320 * math.cos(math.radians(lat)))
+    return (lat - dlat, lon - dlon, lat + dlat, lon + dlon)
+
+
+def _cuadrantes(bbox):
+    s, w, n, e = bbox
+    mlat, mlon = (s + n) / 2, (w + e) / 2
+    return [(s, w, mlat, mlon), (s, mlon, mlat, e),
+            (mlat, w, n, mlon), (mlat, mlon, n, e)]
+
+
+def _pedir(bbox, timeout_q: int = 180, reintentos: int = 3, espera: float = 3.0) -> dict:
+    """Una tesela, rotando de espejo en cada reintento."""
+    q = QUERY_TMPL.format(t=timeout_q, bbox="{:.6f},{:.6f},{:.6f},{:.6f}".format(*bbox))
     ultimo = "sin intentos"
-    for i in range(retries):
+    for i in range(reintentos):
         try:
-            r = requests.post(OVERPASS, data={"data": q}, timeout=320,
-                              headers={"User-Agent": "prospector-local/1.0"})
+            r = requests.post(MIRRORS[i % len(MIRRORS)], data={"data": q},
+                              timeout=timeout_q + 30, headers=UA)
         except requests.exceptions.RequestException as e:
             ultimo = f"{type(e).__name__}: {e}"
         else:
             if r.status_code == 200:
                 try:
-                    datos = r.json()
+                    return r.json()
                 except ValueError:
                     # Overpass corta la respuesta a medias cuando va saturado
                     ultimo = "respuesta incompleta o no es JSON"
-                else:
-                    # El parseo va fuera del try: un fallo aquí es un bug
-                    # nuestro y debe verse, no reintentarse en silencio.
-                    return parse_overpass(datos, centro)
             else:
                 ultimo = f"HTTP {r.status_code}"
-        if i < retries - 1:
-            time.sleep(20 * (i + 1))  # Overpass rate-limita con 429/504
-    raise RuntimeError(f"Overpass falló tras {retries} intentos ({ultimo})")
+        if i < reintentos - 1:
+            time.sleep(espera * 5 * (i + 1))
+    raise OverpassError(f"Overpass falló tras {reintentos} intentos ({ultimo})")
+
+
+def descargar(radius_m: int = 15000, centro=LA_POBLA, reintentos: int = 3,
+              espera: float = 3.0, profundidad_max: int = 2, aviso=None) -> dict:
+    """Baja el área entera y devuelve el JSON crudo combinado.
+
+    Empieza por una sola consulta. Si Overpass no la aguanta, parte la tesela
+    en cuatro y reintenta cada cuadrante, hasta `profundidad_max` niveles.
+    Así no se castiga al servicio con 16 consultas cuando basta con una.
+    """
+    aviso = aviso or (lambda _: None)
+    elementos, vistos = [], set()
+    pendientes = [(_bbox(centro, radius_m), 0)]
+    primera = True
+
+    while pendientes:
+        bbox, prof = pendientes.pop(0)
+        if not primera:
+            time.sleep(espera)  # cortesía con un servicio gratuito
+        primera = False
+        try:
+            datos = _pedir(bbox, reintentos=reintentos, espera=espera)
+        except OverpassError as e:
+            if prof >= profundidad_max:
+                raise
+            aviso(f"tesela sin respuesta ({e}); partiéndola en cuatro")
+            pendientes.extend((c, prof + 1) for c in _cuadrantes(bbox))
+            continue
+        nuevos = 0
+        for el in datos.get("elements", []):
+            clave = (el.get("type"), el.get("id"))
+            if clave not in vistos:
+                vistos.add(clave)
+                elementos.append(el)
+                nuevos += 1
+        aviso(f"tesela con {nuevos} elementos nuevos ({len(elementos)} acumulados)")
+
+    return {"elements": elementos}
+
+
+def fetch(radius_m: int = 15000, centro=LA_POBLA, **kw) -> list:
+    """Censo completo: descarga y parsea."""
+    return parse_overpass(descargar(radius_m, centro, **kw), centro, radio_m=radius_m)

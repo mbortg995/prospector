@@ -27,7 +27,10 @@ La BD se crea en la raíz del proyecto; `PROSPECTOR_DB` la mueve a otro sitio.
 
 ```bash
 # 1. Censar (una vez al mes basta; OSM cambia despacio)
-python3 -m prospector.cli discover --radius 15000
+prospector discover --radius 15000 --guardar-json censo.json
+
+# Afinar el parser sobre el volcado, sin gastar consultas a Overpass
+prospector discover --desde-json censo.json --simular
 
 # 2. Auditar por tandas. Cada web tarda ~3 s entre HTTP y Wayback.
 python3 -m prospector.cli audit --limit 150
@@ -74,6 +77,20 @@ Modificadores: sector con capacidad de pago (dentista +18, gestoría +14, taller
 peluquería +8), teléfono directo (+8), cercanía (+8 si está a menos de 10 km).
 
 Las franquicias se descartan solas por el tag `brand` de OSM: no deciden en local.
+
+## Portarse bien con Overpass
+
+Es un servicio comunitario gratuito. `discover` lanza **una sola consulta** y
+solo parte el área en cuatro teselas si esa consulta falla, hasta dos niveles.
+Rota entre tres espejos ante fallo y espera `--espera` segundos entre teselas.
+
+`--guardar-json` vuelca la respuesta cruda y `--desde-json` la reparsea sin
+red: para afinar el parser o los pesos no hace falta volver a preguntar. Los
+tests tienen un cortafuegos que hace fallar cualquier intento de salir a
+internet.
+
+`audit` espera `--espera` segundos entre negocios (1 por defecto). Cada web son
+dos peticiones ajenas: la suya y la de Wayback.
 
 ## Ajustar
 
