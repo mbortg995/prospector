@@ -5,6 +5,7 @@ por qué escuchar en la red. Los comandos largos (`audit`, `enriquecer`) se
 lanzan como subproceso y su salida se va leyendo en vivo, uno cada vez.
 """
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -54,6 +55,9 @@ class Tarea:
             self.arrancada = datetime.now(UTC).isoformat(timespec="seconds")
             self.proc = subprocess.Popen(
                 [sys.executable, "-m", "prospector.cli", cmd, flag, str(limite)],
+                # La BD va explícita: si no, el subproceso resuelve la suya y
+                # el panel podría estar enseñando una y sus botones tocando otra.
+                env={**os.environ, "PROSPECTOR_DB": str(db.DB_PATH)},
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )

@@ -192,6 +192,22 @@ class TestTareas:
         e = get(servidor, "/api/tarea")
         assert e["viva"] is False and e["nombre"] is None and e["lineas"] == []
 
+    def test_la_tarea_trabaja_sobre_la_bd_que_enseña_el_panel(self, servidor,
+                                                                monkeypatch):
+        """El subproceso resolvía su propia BD. En una máquina con BD por
+        defecto el panel podía enseñar una y sus botones tocar otra; lo cazó
+        el CI, donde no hay ninguna y el comando reventaba."""
+        capturado = {}
+        real = panel.subprocess.Popen
+
+        def popen(cmd, **kw):
+            capturado.update(kw)
+            return real(cmd, **kw)
+
+        monkeypatch.setattr(panel.subprocess, "Popen", popen)
+        post(servidor, "/api/tarea", {"nombre": "audit", "limite": 0})
+        assert capturado["env"]["PROSPECTOR_DB"] == str(db.DB_PATH)
+
     def test_lanza_y_recoge_la_salida(self, servidor):
         """Se usa `audit` con tope 0: no hay nada auditable, así que no sale
         a la red, pero recorre el camino entero de lanzar y leer."""

@@ -41,7 +41,7 @@ Funciona y está probado con datos simulados:
 - `panel.py` + `panel.html` — panel local en 127.0.0.1, solo stdlib (`http.server`),
   sin framework ni CDN. Lista blanca de tareas lanzables y una cada vez.
 - `cli.py` — comandos: `init discover enriquecer audit panel clave cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 248 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `tests/` — 249 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519
