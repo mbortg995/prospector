@@ -355,3 +355,148 @@ class TestFetch:
             _nodo(osm_id=2, lat=39.7000, lon=-0.7000, name="Lejos", shop="bakery"),
         ]})
         assert [b["name"] for b in discover.fetch(5000)] == ["Cerca"]
+
+
+class TestMunicipios:
+    def test_pregunta_a_osm_en_vez_de_codificarlos(self, monkeypatch):
+        from prospector import discover
+        monkeypatch.setattr(discover, "_consulta", lambda q, **k: {"elements": [
+            {"tags": {"name": "Llíria"}},
+            {"tags": {"name": "Benaguasil"}},
+            {"tags": {"sin": "nombre"}},
+        ]})
+        assert discover.municipios("el Camp de Túria") == ["Benaguasil", "Llíria"]
+
+    def test_comarca_desconocida_avisa_claro(self, monkeypatch):
+        from prospector import discover
+        monkeypatch.setattr(discover, "_consulta", lambda q, **k: {"elements": []})
+        with pytest.raises(discover.OverpassError, match="no conoce la comarca"):
+            discover.municipios("el Camp de Inventado")
+
+    def test_el_nombre_de_la_comarca_viaja_en_la_consulta(self, monkeypatch):
+        from prospector import discover
+        vistas = []
+        monkeypatch.setattr(discover, "_consulta", lambda q, **k: vistas.append(q) or
+                            {"elements": [{"tags": {"name": "Llíria"}}]})
+        discover.municipios("el Camp de Túria")
+        assert '"name"="el Camp de Túria"' in vistas[0]
+
+
+class TestDescargarComarca:
+    def _doble(self, monkeypatch, por_muni):
+        from prospector import discover
+        consultas = []
+
+        def consulta(q, **k):
+            consultas.append(q)
+            for muni, els in por_muni.items():
+                if f'"name"="{muni}"' in q:
+                    return {"elements": els}
+            return {"elements": [{"tags": {"name": m}} for m in por_muni]}
+
+        monkeypatch.setattr(discover, "_consulta", consulta)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+        return consultas
+
+    def test_una_consulta_por_municipio_mas_la_de_la_lista(self, monkeypatch):
+        from prospector import discover
+        consultas = self._doble(monkeypatch, {"Llíria": [], "Benaguasil": []})
+        discover.descargar_comarca()
+        assert len(consultas) == 3
+
+    def test_etiqueta_cada_negocio_con_su_municipio(self, monkeypatch):
+        """Es lo que OSM no trae en el 75% de los casos."""
+        from prospector import discover
+        self._doble(monkeypatch, {
+            "Llíria": [{"type": "node", "id": 1}],
+            "Benaguasil": [{"type": "node", "id": 2}],
+        })
+        els = discover.descargar_comarca()["elements"]
+        assert {e["id"]: e["_municipio"] for e in els} == {1: "Llíria", 2: "Benaguasil"}
+
+    def test_deduplica_entre_municipios(self, monkeypatch):
+        from prospector import discover
+        self._doble(monkeypatch, {
+            "Llíria": [{"type": "node", "id": 1}],
+            "Benaguasil": [{"type": "node", "id": 1}],
+        })
+        assert len(discover.descargar_comarca()["elements"]) == 1
+
+    def test_espera_entre_municipios_pero_no_antes_del_primero(self, monkeypatch):
+        from prospector import discover
+        esperas = []
+        self._doble(monkeypatch, {"Llíria": [], "Benaguasil": [], "Serra": []})
+        monkeypatch.setattr(discover.time, "sleep", esperas.append)
+        discover.descargar_comarca(espera=3.0)
+        assert esperas == [3.0, 3.0]
+
+
+class TestMunicipioDerivado:
+    def test_manda_sobre_addr_city(self, monkeypatch):
+        """addr:city trae variantes ('l'Eliana' / 'L'Eliana') que rompen
+        cualquier agrupación; el derivado del área es uniforme."""
+        el = _nodo(name="Bar Ejemplo", amenity="bar", **{"addr:city": "L'Eliana"})
+        el["_municipio"] = "l'Eliana"
+        (b,) = parse_overpass({"elements": [el]})
+        assert b["municipality"] == "l'Eliana"
+
+    def test_cae_a_addr_city_si_no_hay_derivado(self):
+        el = _nodo(name="Bar", amenity="bar", **{"addr:city": "Llíria"})
+        (b,) = parse_overpass({"elements": [el]})
+        assert b["municipality"] == "Llíria"
+
+    def test_sin_ninguno_queda_a_none(self):
+        (b,) = parse_overpass({"elements": [_nodo(name="Bar", amenity="bar")]})
+        assert b["municipality"] is None
+
+
+class TestToleranciaAFallos:
+    """16 municipios son 16 ocasiones de que Overpass devuelva un 502.
+    Perder el censo entero por una de ellas salió en la pasada real."""
+
+    def _doble(self, monkeypatch, resultado_por_muni):
+        from prospector import discover
+        munis = list(resultado_por_muni)
+
+        def consulta(q, **k):
+            for muni, res in resultado_por_muni.items():
+                if f'"name"="{muni}"' in q:
+                    if isinstance(res, Exception):
+                        raise res
+                    return {"elements": res}
+            return {"elements": [{"tags": {"name": m}} for m in munis]}
+
+        monkeypatch.setattr(discover, "_consulta", consulta)
+        monkeypatch.setattr(discover.time, "sleep", lambda s: None)
+
+    def test_un_municipio_caido_no_tira_el_censo(self, monkeypatch):
+        from prospector import discover
+        self._doble(monkeypatch, {
+            "Benaguasil": [{"type": "node", "id": 1}],
+            "Bétera": discover.OverpassError("HTTP 502"),
+            "Llíria": [{"type": "node", "id": 2}],
+        })
+        datos = discover.descargar_comarca()
+        assert [e["id"] for e in datos["elements"]] == [1, 2]
+        assert datos["_fallidos"] == ["Bétera"]
+
+    def test_se_rinde_solo_si_no_responde_ninguno(self, monkeypatch):
+        from prospector import discover
+        self._doble(monkeypatch, {
+            "Benaguasil": discover.OverpassError("HTTP 502"),
+            "Llíria": discover.OverpassError("HTTP 502"),
+        })
+        with pytest.raises(discover.OverpassError, match="ningún municipio"):
+            discover.descargar_comarca()
+
+    def test_se_pueden_reintentar_solo_los_que_faltan(self, monkeypatch):
+        """Sin volver a preguntar por los que ya salieron bien."""
+        from prospector import discover
+        consultas = []
+        self._doble(monkeypatch, {"Bétera": [{"type": "node", "id": 9}]})
+        original = discover._consulta
+        monkeypatch.setattr(discover, "_consulta",
+                            lambda q, **k: consultas.append(q) or original(q, **k))
+        datos = discover.descargar_comarca(solo=["Bétera"])
+        assert len(consultas) == 1  # ni siquiera pide la lista de municipios
+        assert datos["elements"][0]["_municipio"] == "Bétera"

@@ -16,20 +16,45 @@ OVERPASS = MIRRORS[0]
 UA = {"User-Agent": "prospector-local/1.0"}
 LA_POBLA = (39.5878, -0.5397)
 
+# OSM tiene la comarca como relación administrativa propia (admin_level=7),
+# así que el ámbito no se aproxima con un círculo: se pregunta.
+COMARCA = "el Camp de Túria"
+
 # Categorías que pagan por una web. El resto es ruido.
 # Se consulta por bbox y no por `around` para poder partir el área en teselas
 # cuando Overpass no aguanta la consulta entera.
+# {sel} es el selector de área: una bbox o `area.a`.
+CATEGORIAS = """
+  nwr["shop"]({sel});
+  nwr["craft"]({sel});
+  nwr["office"]({sel});
+  nwr["healthcare"]({sel});
+  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"]({sel});
+  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"]({sel});
+  nwr["leisure"~"^(fitness_centre|sports_centre)$"]({sel});
+"""
+
 QUERY_TMPL = """
 [out:json][timeout:{t}];
 (
-  nwr["shop"]({bbox});
-  nwr["craft"]({bbox});
-  nwr["office"]({bbox});
-  nwr["healthcare"]({bbox});
-  nwr["amenity"~"^(restaurant|cafe|bar|pub|dentist|clinic|doctors|veterinary|driving_school|pharmacy|childcare|kindergarten)$"]({bbox});
-  nwr["tourism"~"^(hotel|guest_house|apartment|camp_site)$"]({bbox});
-  nwr["leisure"~"^(fitness_centre|sports_centre)$"]({bbox});
-);
+""" + CATEGORIAS + """);
+out center tags;
+"""
+
+# Los municipios de la comarca, según la propia OSM.
+Q_MUNICIPIOS = """
+[out:json][timeout:{t}];
+rel["admin_level"="7"]["name"="{comarca}"];
+map_to_area->.c;
+rel(area.c)["admin_level"="8"]["boundary"="administrative"];
+out tags;
+"""
+
+Q_MUNICIPIO = """
+[out:json][timeout:{t}];
+area["admin_level"="8"]["name"="{muni}"]->.a;
+(
+""" + CATEGORIAS.replace("{sel}", "area.a") + """);
 out center tags;
 """
 
@@ -139,7 +164,10 @@ def parse_overpass(data: dict, centro=LA_POBLA, radio_m: int | None = None) -> l
             "name": name.strip(),
             "category": cat,
             "lat": lat, "lon": lon,
-            "municipality": tags.get("addr:city"),
+            # El municipio derivado del área manda sobre addr:city: este
+            # falta en el 75% de los casos y trae variantes ("l'Eliana" /
+            # "L'Eliana") que romperían cualquier agrupación.
+            "municipality": el.get("_municipio") or tags.get("addr:city"),
             "address": addr,
             "phone": _telefono(tags),
             "email": _email(tags),
@@ -165,9 +193,9 @@ def _cuadrantes(bbox):
             (mlat, w, n, mlon), (mlat, mlon, n, e)]
 
 
-def _pedir(bbox, timeout_q: int = 180, reintentos: int = 3, espera: float = 3.0) -> dict:
-    """Una tesela, rotando de espejo en cada reintento."""
-    q = QUERY_TMPL.format(t=timeout_q, bbox="{:.6f},{:.6f},{:.6f},{:.6f}".format(*bbox))
+def _consulta(q: str, timeout_q: int = 180, reintentos: int = 3,
+              espera: float = 3.0) -> dict:
+    """Una consulta a Overpass, rotando de espejo en cada reintento."""
     ultimo = "sin intentos"
     for i in range(reintentos):
         try:
@@ -187,6 +215,74 @@ def _pedir(bbox, timeout_q: int = 180, reintentos: int = 3, espera: float = 3.0)
         if i < reintentos - 1:
             time.sleep(espera * 5 * (i + 1))
     raise OverpassError(f"Overpass falló tras {reintentos} intentos ({ultimo})")
+
+
+def _pedir(bbox, timeout_q: int = 180, **kw) -> dict:
+    """Una tesela rectangular."""
+    return _consulta(
+        QUERY_TMPL.format(t=timeout_q, sel="{:.6f},{:.6f},{:.6f},{:.6f}".format(*bbox)),
+        timeout_q=timeout_q, **kw)
+
+
+def municipios(comarca: str = COMARCA, timeout_q: int = 120, **kw) -> list:
+    """Los municipios de la comarca, preguntados a OSM en vez de codificados."""
+    datos = _consulta(Q_MUNICIPIOS.format(t=timeout_q, comarca=comarca),
+                      timeout_q=timeout_q, **kw)
+    nombres = sorted(e.get("tags", {}).get("name") for e in datos.get("elements", [])
+                     if e.get("tags", {}).get("name"))
+    if not nombres:
+        raise OverpassError(f"OSM no conoce la comarca «{comarca}»")
+    return nombres
+
+
+def descargar_comarca(comarca: str = COMARCA, reintentos: int = 3,
+                      espera: float = 3.0, aviso=None, solo=None) -> dict:
+    """Censo por municipios de la comarca.
+
+    Una consulta por municipio en vez de un círculo: el ámbito sale exacto y
+    cada negocio queda etiquetado con su municipio, que es justo lo que OSM no
+    trae en el 75% de los casos. Son consultas pequeñas, no una gigante.
+
+    Un municipio que falle no tira el censo: son 16 consultas, o sea 16
+    ocasiones de que Overpass devuelva un 502. Los fallidos se listan en
+    `_fallidos` para poder reintentarlos con `--municipios` sin repetir el
+    resto. Solo se rinde si no ha salido ni uno.
+    """
+    aviso = aviso or (lambda _: None)
+    if solo:
+        munis = list(solo)
+        aviso(f"{len(munis)} municipios pedidos a mano")
+    else:
+        munis = municipios(comarca, reintentos=reintentos, espera=espera)
+        aviso(f"{len(munis)} municipios en «{comarca}»")
+
+    elementos, vistos, fallidos = [], set(), []
+    for i, muni in enumerate(munis):
+        if i:
+            time.sleep(espera)  # cortesía con un servicio gratuito
+        try:
+            datos = _consulta(Q_MUNICIPIO.format(t=180, muni=muni),
+                              reintentos=reintentos, espera=espera)
+        except OverpassError as e:
+            fallidos.append(muni)
+            aviso(f"{muni}: SIN RESPUESTA ({e})")
+            continue
+        nuevos = 0
+        for el in datos.get("elements", []):
+            clave = (el.get("type"), el.get("id"))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            el["_municipio"] = muni  # viaja en el volcado, sobrevive a --desde-json
+            elementos.append(el)
+            nuevos += 1
+        aviso(f"{muni}: {nuevos}")
+
+    if fallidos and len(fallidos) == len(munis):
+        raise OverpassError(f"ningún municipio respondió ({', '.join(fallidos)})")
+    if fallidos:
+        aviso(f"quedan pendientes: {', '.join(fallidos)}")
+    return {"elements": elementos, "_fallidos": fallidos}
 
 
 def descargar(radius_m: int = 15000, centro=LA_POBLA, reintentos: int = 3,
