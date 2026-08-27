@@ -23,15 +23,101 @@ NEGOCIO = {"name": "Panadería Pepe", "lat": 39.5878, "lon": -0.5397}
 
 
 class TestClave:
-    def test_sin_clave_avisa_de_como_ponerla(self, monkeypatch):
+    @pytest.fixture
+    def sin_llavero(self, monkeypatch):
+        monkeypatch.setattr(places, "_del_llavero", lambda: None)
+
+    def test_sin_clave_avisa_de_como_ponerla(self, monkeypatch, sin_llavero):
         monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
-        with pytest.raises(places.SinClave, match="GOOGLE_PLACES_API_KEY"):
+        with pytest.raises(places.SinClave, match="clave --guardar"):
             places.clave()
 
-    def test_clave_vacia_cuenta_como_ausente(self, monkeypatch):
+    def test_clave_vacia_cuenta_como_ausente(self, monkeypatch, sin_llavero):
         monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "   ")
         with pytest.raises(places.SinClave):
             places.clave()
+
+    def test_cae_al_llavero_si_no_hay_variable(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
+        monkeypatch.setattr(places, "_del_llavero", lambda: "del-llavero")
+        assert places.clave() == "del-llavero"
+
+    def test_la_variable_manda_sobre_el_llavero(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "de-la-variable")
+        monkeypatch.setattr(places, "_del_llavero", lambda: "del-llavero")
+        assert places.clave() == "de-la-variable"
+
+
+class TestLlavero:
+    def _security(self, monkeypatch, returncode=0, stdout="clave-guardada"):
+        import subprocess
+        vistos = []
+
+        def run(cmd, **kw):
+            vistos.append(cmd)
+            return subprocess.CompletedProcess(cmd, returncode, stdout, "")
+
+        monkeypatch.setattr(places.subprocess, "run", run)
+        monkeypatch.setattr(places.sys, "platform", "darwin")
+        return vistos
+
+    def test_lee_del_llavero_por_nombre_de_servicio(self, monkeypatch):
+        vistos = self._security(monkeypatch)
+        assert places._del_llavero() == "clave-guardada"
+        assert vistos[0] == ["security", "find-generic-password",
+                             "-s", places.LLAVERO, "-w"]
+
+    def test_llavero_vacio_devuelve_none(self, monkeypatch):
+        self._security(monkeypatch, returncode=44, stdout="")
+        assert places._del_llavero() is None
+
+    def test_fuera_de_macos_no_intenta_el_llavero(self, monkeypatch):
+        monkeypatch.setattr(places.sys, "platform", "linux")
+        monkeypatch.setattr(places.subprocess, "run",
+                            lambda *a, **k: pytest.fail("no debe llamar a security"))
+        assert places._del_llavero() is None
+
+    def test_sin_el_binario_security_no_revienta(self, monkeypatch):
+        monkeypatch.setattr(places.sys, "platform", "darwin")
+        monkeypatch.setattr(places.subprocess, "run",
+                            lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+        assert places._del_llavero() is None
+
+    def test_guardar_no_captura_la_salida(self, monkeypatch):
+        """La clave la teclea el usuario en su terminal: si capturásemos la
+        salida, `security` no podría pedirla y pasaría por este proceso."""
+        capturas = []
+
+        def run(cmd, **kw):
+            import subprocess
+            capturas.append(kw)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(places.sys, "platform", "darwin")
+        monkeypatch.setattr(places.subprocess, "run", run)
+        places.guardar_en_llavero()
+        assert "capture_output" not in capturas[0]
+        assert "input" not in capturas[0]
+
+    def test_guardar_pasa_w_sin_valor(self, monkeypatch):
+        """Con -w y sin valor, `security` la pide por teclado y no queda en
+        el historial del shell."""
+        vistos = self._security(monkeypatch)
+        places.guardar_en_llavero()
+        assert vistos[0][-1] == "-w"
+        assert not any(a.startswith("-w") and len(a) > 2 for a in vistos[0])
+
+    def test_origen_dice_de_donde_sale_sin_enseñarla(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
+        monkeypatch.setattr(places, "_del_llavero", lambda: "secreto")
+        assert places.origen_clave() == "Llavero de macOS"
+        monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "otra")
+        assert places.origen_clave() == "variable de entorno"
+
+    def test_origen_none_si_no_hay_nada(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
+        monkeypatch.setattr(places, "_del_llavero", lambda: None)
+        assert places.origen_clave() is None
 
 
 class TestSimilitud:

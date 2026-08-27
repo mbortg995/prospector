@@ -170,6 +170,30 @@ WHERE b.is_chain = 0
 """
 
 
+def cmd_clave(a):
+    """Gestiona la clave de Google Places sin que pase por aquí en claro."""
+    if a.guardar:
+        print(f"Se guardará en el Llavero bajo «{places.LLAVERO}».")
+        print("Pégala cuando la pida (no se verá al escribir ni queda en el "
+              "historial del shell).")
+        places.guardar_en_llavero()
+        print("Guardada.")
+    elif a.borrar:
+        print("Borrada del Llavero." if places.borrar_del_llavero()
+              else "No había ninguna clave en el Llavero.")
+        return
+
+    origen = places.origen_clave()
+    if not origen:
+        print("No hay clave configurada. `prospector clave --guardar` la pide "
+              "por teclado y la mete en el Llavero.")
+        raise SystemExit(1)
+    # Nunca se imprime el valor, ni siquiera un trozo.
+    print(f"Clave disponible · origen: {origen}")
+    if origen == "variable de entorno" and places._del_llavero():
+        print(f"  (también hay una en el Llavero; manda {places.VARIABLE})")
+
+
 def cmd_enriquecer(a):
     """Rellena teléfono y web con Google Places. Cada consulta se paga."""
     con = db.init()  # asegura place_lookups en BD creadas antes
@@ -201,6 +225,14 @@ def cmd_enriquecer(a):
         if len(filas) > 15:
             print(f"  ... y {len(filas) - 15} más")
         return
+
+    # Comprobar la clave antes de empezar: sin ella no hay nada que hacer y
+    # es absurdo informar de "parado en 0/N".
+    try:
+        places.clave()
+    except places.SinClave as e:
+        print(e, file=sys.stderr)
+        raise SystemExit(1) from None
 
     puestos = casados = 0
     for i, r in enumerate(filas, 1):
@@ -415,6 +447,13 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("clave", help="comprobar o guardar la clave de Google Places")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--guardar", action="store_true",
+                   help="pedirla por teclado y meterla en el Llavero de macOS")
+    g.add_argument("--borrar", action="store_true", help="quitarla del Llavero")
+    p.set_defaults(f=cmd_clave)
 
     p = sub.add_parser("enriquecer", help="rellenar teléfono y web con Google Places")
     p.add_argument("--limite", type=int, default=25,
