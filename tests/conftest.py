@@ -3,6 +3,23 @@ import pytest
 from prospector import db
 
 
+@pytest.fixture(autouse=True)
+def red_cortada(monkeypatch):
+    """Ningún test sale a internet.
+
+    Overpass y archive.org son servicios comunitarios gratuitos: una suite que
+    los golpea sin querer es exactamente lo que el proyecto no quiere hacer.
+    Si un doble se coloca en el sitio equivocado, esto lo caza en vez de
+    dejar que el test pase saliendo a la red de verdad.
+    """
+    def prohibido(*a, **kw):
+        raise AssertionError(
+            "Un test ha intentado salir a la red. Revisa dónde está el doble: "
+            "cli.py importa `descargar` a su propio espacio de nombres."
+        )
+    monkeypatch.setattr("requests.sessions.Session.request", prohibido)
+
+
 @pytest.fixture
 def con(tmp_path):
     """BD limpia en disco temporal. Nunca toca la BD real."""

@@ -3,6 +3,7 @@
 `discover` y `audit` salen a internet, así que aquí se siembra la BD a mano
 y se ejercita el resto del ciclo comercial, que es el que se usa a diario.
 """
+import argparse
 import json
 import os
 import sqlite3
@@ -11,7 +12,9 @@ import sys
 
 import pytest
 
+from prospector import cli as climod
 from prospector.cli import slug
+from prospector.discover import LA_POBLA
 
 
 class TestSlug:
@@ -201,3 +204,64 @@ class TestBugsDelPipeline:
         lineas = [ln for ln in cli("export").stdout.splitlines() if ln.strip()]
         assert len(lineas) == 1
         assert lineas[0].startswith("id,name,category")
+
+
+class TestDiscoverSinRed:
+    """--desde-json y --simular existen para poder afinar el parser sin
+    gastar consultas contra un servicio comunitario gratuito."""
+
+    CRUDO = {"elements": [
+        {"type": "node", "id": 1, "lat": 39.5900, "lon": -0.5420,
+         "tags": {"name": "Panadería Pepe", "shop": "bakery",
+                  "phone": "961234567", "addr:city": "Llíria"}},
+        {"type": "node", "id": 2, "lat": 39.5890, "lon": -0.5410,
+         "tags": {"name": "Mercadona", "shop": "supermarket", "brand": "Mercadona"}},
+        {"type": "node", "id": 3, "lat": 39.9000, "lon": -0.9000,
+         "tags": {"name": "Muy Lejos", "shop": "bakery", "phone": "961000000"}},
+    ]}
+
+    @pytest.fixture
+    def crudo(self, tmp_path):
+        ruta = tmp_path / "crudo.json"
+        ruta.write_text(json.dumps(self.CRUDO), encoding="utf-8")
+        return str(ruta)
+
+    def test_desde_json_no_sale_a_la_red(self, cli, crudo):
+        cli("init")
+        r = cli("discover", "--desde-json", crudo, "--radius", "5000")
+        assert "sin red" in r.stderr
+        con = sqlite3.connect(cli.db)
+        nombres = {n for (n,) in con.execute("SELECT name FROM businesses")}
+        assert nombres == {"Panadería Pepe", "Mercadona"}  # "Muy Lejos" queda fuera
+
+    def test_simular_no_toca_la_bd(self, cli, crudo):
+        cli("init")
+        r = cli("discover", "--desde-json", crudo, "--radius", "5000", "--simular")
+        assert "simulacro" in r.stdout
+        con = sqlite3.connect(cli.db)
+        assert con.execute("SELECT COUNT(*) FROM businesses").fetchone()[0] == 0
+
+    def test_el_resumen_separa_lo_auditable(self, cli, crudo):
+        cli("init")
+        salida = cli("discover", "--desde-json", crudo, "--radius", "5000",
+                     "--simular").stdout
+        assert "2 negocios · 1 cadenas" in salida
+        assert "1 con vía de contacto" in salida  # la cadena no cuenta
+        assert "Llíria" in salida
+        assert "bakery" in salida
+
+    def test_reejecutar_desde_el_mismo_volcado_no_duplica(self, cli, crudo):
+        cli("init")
+        cli("discover", "--desde-json", crudo, "--radius", "5000")
+        r = cli("discover", "--desde-json", crudo, "--radius", "5000")
+        assert "0 nuevos" in r.stdout
+
+    def test_guardar_json_vuelca_lo_que_luego_se_puede_reparsear(self, tmp_path, monkeypatch):
+        """El doble va sobre cli.descargar, no sobre discover.descargar:
+        cli.py lo importa a su propio espacio de nombres."""
+        destino = tmp_path / "volcado.json"
+        monkeypatch.setattr(climod, "descargar", lambda *a, **k: self.CRUDO)
+        climod.cmd_discover(argparse.Namespace(
+            lat=LA_POBLA[0], lon=LA_POBLA[1], radius=5000, espera=0,
+            desde_json=None, guardar_json=str(destino), simular=True))
+        assert json.loads(destino.read_text(encoding="utf-8")) == self.CRUDO
