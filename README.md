@@ -27,7 +27,10 @@ La BD se crea en la raíz del proyecto; `PROSPECTOR_DB` la mueve a otro sitio.
 
 ```bash
 # 1. Censar (una vez al mes basta; OSM cambia despacio)
-prospector discover --radius 15000 --guardar-json censo.json
+prospector discover --guardar-json censo.json
+
+# Si algún municipio se queda sin respuesta, reintentar solo ese
+prospector discover --municipios Bétera Llíria
 
 # Afinar el parser sobre el volcado, sin gastar consultas a Overpass
 prospector discover --desde-json censo.json --simular
@@ -78,11 +81,38 @@ peluquería +8), teléfono directo (+8), cercanía (+8 si está a menos de 10 km
 
 Las franquicias se descartan solas por el tag `brand` de OSM: no deciden en local.
 
+## El ámbito: la comarca, no un círculo
+
+OSM tiene **`el Camp de Túria` como relación administrativa propia**
+(`admin_level=7`), así que el ámbito no se aproxima con un radio: se pregunta.
+`discover` saca de OSM los 16 municipios de la comarca y lanza una consulta por
+cada uno.
+
+Eso resuelve dos cosas de un golpe. El ámbito sale exacto —un círculo de 15 km
+desde La Pobla metía dos tercios de l'Horta en la cola— y **cada negocio queda
+etiquetado con su municipio**, que es justo lo que OSM no trae en el 75% de los
+casos. El municipio derivado manda sobre `addr:city`, que además viene con
+variantes (`l'Eliana` y `L'Eliana` como valores distintos).
+
+`--radius N` mantiene el modo círculo para salirse de la comarca a propósito.
+
 ## Portarse bien con Overpass
 
-Es un servicio comunitario gratuito. `discover` lanza **una sola consulta** y
-solo parte el área en cuatro teselas si esa consulta falla, hasta dos niveles.
-Rota entre tres espejos ante fallo y espera `--espera` segundos entre teselas.
+Es un servicio comunitario gratuito. En modo círculo `discover` lanza **una
+sola consulta** y solo parte el área en cuatro teselas si esa consulta falla,
+hasta dos niveles. Los espejos se prueban en orden y el que falla se
+degrada; tras dos fallos se deja de intentar con él durante esa ejecución. No
+se rota a ciegas: en agosto de 2026 dos de los tres espejos devolvían 500 hasta
+con una consulta trivial, así que rotar gastaba los reintentos del bueno en
+servidores muertos. Espera `--espera` segundos entre consultas.
+
+La lista de municipios de la comarca se cachea en disco: cambia cada varios
+años y la consulta que la saca es de las caras. `--refrescar-municipios` la
+vuelve a pedir.
+
+Un municipio que no responda **no tira el censo**: se anota y al final se te
+dice con qué `--municipios` reintentar solo esos. Son 16 consultas, o sea 16
+ocasiones de comerse un 502.
 
 `--guardar-json` vuelca la respuesta cruda y `--desde-json` la reparsea sin
 red: para afinar el parser o los pesos no hace falta volver a preguntar. Los

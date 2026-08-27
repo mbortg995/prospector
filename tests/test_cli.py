@@ -263,5 +263,6 @@ class TestDiscoverSinRed:
         monkeypatch.setattr(climod, "descargar", lambda *a, **k: self.CRUDO)
         climod.cmd_discover(argparse.Namespace(
             lat=LA_POBLA[0], lon=LA_POBLA[1], radius=5000, espera=0,
+            comarca=None, municipios=None, refrescar_municipios=False,
             desde_json=None, guardar_json=str(destino), simular=True))
         assert json.loads(destino.read_text(encoding="utf-8")) == self.CRUDO
