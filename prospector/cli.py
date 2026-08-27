@@ -10,9 +10,16 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-from . import db
+from . import db, places
 from .audit import auditar
-from .discover import COMARCA, LA_POBLA, descargar, descargar_comarca, parse_overpass
+from .discover import (
+    COMARCA,
+    LA_POBLA,
+    _dist_km,
+    descargar,
+    descargar_comarca,
+    parse_overpass,
+)
 
 CACHE = Path(
     os.environ.get("PROSPECTOR_CACHE")
@@ -151,6 +158,89 @@ def cmd_audit(a):
             print(f"  {i}/{len(filas)}", file=sys.stderr)
     con.commit()
     print("Hecho. Mira `cola`.")
+
+
+SQL_HUECOS = """
+SELECT b.* FROM businesses b
+WHERE b.is_chain = 0
+  AND (b.phone IS NULL OR b.website IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM place_lookups p WHERE p.business_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM exclusions e
+                  WHERE e.key = 'osm:' || b.osm_type || '/' || b.osm_id)
+"""
+
+
+def cmd_enriquecer(a):
+    """Rellena teléfono y web con Google Places. Cada consulta se paga."""
+    con = db.init()  # asegura place_lookups en BD creadas antes
+    q, p = SQL_HUECOS, []
+    if a.municipio:
+        q += " AND b.municipality = ?"
+        p.append(a.municipio)
+    # Primero los que ahora mismo son invisibles: sin teléfono no hay venta.
+    q += " ORDER BY (b.phone IS NULL AND b.email IS NULL) DESC, b.dist_km LIMIT ?"
+    p.append(a.limite)
+    filas = con.execute(q, p).fetchall()
+
+    if not filas:
+        print("No hay huecos que rellenar. ¿Ya lo has pasado todo?")
+        return
+
+    sin_contacto = sum(1 for r in filas if not r["phone"] and not r["email"])
+    print(f"{len(filas)} negocios a consultar · {sin_contacto} sin vía de contacto",
+          file=sys.stderr)
+    if a.simular:
+        print("\n(simulacro: 0 consultas hechas, 0 € gastados)")
+        print(f"Una pasada real haría {len(filas)} búsquedas de texto contra "
+              f"Places, una por negocio.")
+        print("Consulta la tarifa vigente en Google Cloud antes de lanzarla: los "
+              "campos de contacto se facturan en el nivel más caro.")
+        for r in filas[:15]:
+            falta = "sin contacto" if not r["phone"] and not r["email"] else "sin web"
+            print(f"  #{r['id']:>4} {r['name'][:34]:<34} {r['municipality'] or '?':<20} {falta}")
+        if len(filas) > 15:
+            print(f"  ... y {len(filas) - 15} más")
+        return
+
+    puestos = casados = 0
+    for i, r in enumerate(filas, 1):
+        if i > 1:
+            time.sleep(a.espera)
+        texto = " ".join(filter(None, [r["name"], r["address"], r["municipality"]]))
+        try:
+            candidatos = places.buscar(texto, r["lat"], r["lon"])
+        except places.PlacesError as e:
+            print(f"\n{e}", file=sys.stderr)
+            print(f"Parado en {i-1}/{len(filas)}. Lo consultado queda guardado.",
+                  file=sys.stderr)
+            break
+        elegido, motivo = places.elegir(candidatos, dict(r), _dist_km)
+        if elegido:
+            casados += 1
+            pl = elegido["place"]
+            datos = {
+                "matched": 1, "motivo": None, "place_id": pl.get("id"),
+                "similitud": elegido["similitud"],
+                "distancia_km": elegido["distancia_km"],
+                "phone": pl.get("nationalPhoneNumber"),
+                "website": pl.get("websiteUri"),
+            }
+            nuevos = db.rellenar_contacto(con, r["id"], datos["phone"], datos["website"])
+            puestos += bool(nuevos)
+            marca = "+" + "+".join(nuevos) if nuevos else "ya lo teníamos"
+            print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {marca}")
+        else:
+            datos = {"matched": 0, "motivo": motivo}
+            print(f"  #{r['id']:>4} {r['name'][:30]:<30} → {motivo}")
+        db.save_lookup(con, r["id"], datos)
+        con.commit()
+
+    con.commit()
+    print(f"\n{casados}/{len(filas)} emparejados · {puestos} con datos nuevos")
+    audit = con.execute(
+        "SELECT COUNT(*) c FROM businesses WHERE is_chain=0 "
+        "AND (phone IS NOT NULL OR email IS NOT NULL)").fetchone()["c"]
+    print(f"Auditables ahora en BD: {audit}")
 
 
 def cmd_cola(a):
@@ -325,6 +415,15 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("enriquecer", help="rellenar teléfono y web con Google Places")
+    p.add_argument("--limite", type=int, default=25,
+                   help="tope de consultas; cada una se paga")
+    p.add_argument("--municipio", help="acotar a un municipio")
+    p.add_argument("--espera", type=float, default=0.2)
+    p.add_argument("--simular", action="store_true",
+                   help="decir cuántas consultas haría, sin hacer ninguna")
+    p.set_defaults(f=cmd_enriquecer)
 
     p = sub.add_parser("cola", help="mejores oportunidades sin trabajar")
     p.add_argument("-n", type=int, default=20)

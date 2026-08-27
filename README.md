@@ -35,26 +35,30 @@ prospector discover --municipios Bétera Llíria
 # Afinar el parser sobre el volcado, sin gastar consultas a Overpass
 prospector discover --desde-json censo.json --simular
 
-# 2. Auditar por tandas. Cada web tarda ~3 s entre HTTP y Wayback.
+# 2. Rellenar teléfonos que OSM no trae (Google Places, se paga)
+prospector enriquecer --simular          # cuántas consultas haría
+prospector enriquecer --limite 50
+
+# 3. Auditar por tandas. Cada web tarda ~3 s entre HTTP y Wayback.
 python3 -m prospector.cli audit --limit 150
 
-# 3. Ver a quién atacar
+# 4. Ver a quién atacar
 python3 -m prospector.cli cola -n 25
 python3 -m prospector.cli cola --track sin_web
 python3 -m prospector.cli ficha 47
 
-# 4. Sacar el contexto de los 3 mejores para generar maquetas
+# 5. Sacar el contexto de los 3 mejores para generar maquetas
 python3 -m prospector.cli brief -n 3 > /tmp/lote.json
 
-# 5. Registrar que ya tienen maqueta
+# 6. Registrar que ya tienen maqueta
 python3 -m prospector.cli maqueta 47
 
-# 6. Registrar llamadas y visitas
+# 7. Registrar llamadas y visitas
 python3 -m prospector.cli log 47 llamada cita --next "Visita con tablet" --fecha 2026-09-03
 python3 -m prospector.cli log 51 visita no_interesado --notes "Se lo lleva un familiar"
 python3 -m prospector.cli excluir 51 --reason "pidió no volver a llamar"
 
-# 7. Estado
+# 8. Estado
 python3 -m prospector.cli embudo
 ```
 
@@ -121,6 +125,42 @@ internet.
 
 `audit` espera `--espera` segundos entre negocios (1 por defecto). Cada web son
 dos peticiones ajenas: la suya y la de Wayback.
+
+## Rellenar huecos con Google Places
+
+OSM trae teléfono en el 21% de los casos: el censo de la comarca da 519
+negocios y solo 95 con vía de contacto. `enriquecer` busca en Places los que
+están censados pero incompletos y les pone el teléfono y la web que faltan.
+
+**Se paga por consulta**, así que todo está montado para gastar lo mínimo:
+
+- Solo se consultan negocios **ya censados** a los que falta algo. No se barre
+  la comarca a ciegas.
+- Cada consulta queda anotada en `place_lookups`, **también las que no casan**.
+  Nunca se pregunta dos veces por el mismo negocio.
+- `--limite` topa las consultas por pasada (25 por defecto).
+- `--simular` dice cuántas haría sin hacer ninguna.
+- Se piden solo los campos que se usan: la máscara de campos decide el nivel de
+  facturación.
+
+El emparejamiento es **estricto a propósito**: exige estar a menos de 300 m y
+que el nombre se parezca al menos un 60%. Un teléfono mal asignado hace que
+llames a otro negocio, y eso es peor que no tener teléfono. Lo que no casa se
+guarda con el motivo, para poder revisar el criterio sin volver a pagar.
+
+Un dato que ya venía de OSM **nunca se pisa**.
+
+### Configurar la clave
+
+En Google Cloud: crear proyecto, habilitar **Places API (New)**, crear una clave
+y ponerle restricciones. Luego, en tu shell:
+
+```bash
+export GOOGLE_PLACES_API_KEY="..."
+```
+
+Nunca en un fichero del repositorio. Consulta la tarifa vigente antes de lanzar
+una pasada grande: los campos de contacto se facturan en el nivel más caro.
 
 ## Ajustar
 
