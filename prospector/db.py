@@ -23,14 +23,15 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
-    con = sqlite3.connect(path)
+def connect(path: Path | None = None) -> sqlite3.Connection:
+    # Se resuelve al llamar, no al importar: si no, DB_PATH queda congelada.
+    con = sqlite3.connect(path or DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
-def init(path: Path = DB_PATH) -> sqlite3.Connection:
+def init(path: Path | None = None) -> sqlite3.Connection:
     con = connect(path)
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
     con.commit()

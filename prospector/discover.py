@@ -123,11 +123,29 @@ def parse_overpass(data: dict, centro=LA_POBLA) -> list:
 
 
 def fetch(radius_m: int = 15000, centro=LA_POBLA, retries: int = 3) -> list:
+    """Consulta Overpass con reintentos. Overpass se cae y rate-limita a
+    menudo: un fallo de red no puede tumbar la pasada de censo entera."""
     q = QUERY_TMPL.format(r=radius_m, lat=centro[0], lon=centro[1])
+    ultimo = "sin intentos"
     for i in range(retries):
-        r = requests.post(OVERPASS, data={"data": q}, timeout=320,
-                          headers={"User-Agent": "prospector-local/1.0"})
-        if r.status_code == 200:
-            return parse_overpass(r.json(), centro)
-        time.sleep(20 * (i + 1))  # Overpass rate-limita con 429/504
-    raise RuntimeError(f"Overpass falló: {r.status_code}")
+        try:
+            r = requests.post(OVERPASS, data={"data": q}, timeout=320,
+                              headers={"User-Agent": "prospector-local/1.0"})
+        except requests.exceptions.RequestException as e:
+            ultimo = f"{type(e).__name__}: {e}"
+        else:
+            if r.status_code == 200:
+                try:
+                    datos = r.json()
+                except ValueError:
+                    # Overpass corta la respuesta a medias cuando va saturado
+                    ultimo = "respuesta incompleta o no es JSON"
+                else:
+                    # El parseo va fuera del try: un fallo aquí es un bug
+                    # nuestro y debe verse, no reintentarse en silencio.
+                    return parse_overpass(datos, centro)
+            else:
+                ultimo = f"HTTP {r.status_code}"
+        if i < retries - 1:
+            time.sleep(20 * (i + 1))  # Overpass rate-limita con 429/504
+    raise RuntimeError(f"Overpass falló tras {retries} intentos ({ultimo})")

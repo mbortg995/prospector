@@ -147,3 +147,22 @@ class TestInteracciones:
         p = con.execute("SELECT * FROM pipeline WHERE business_id=?", (bid,)).fetchone()
         assert p["stage"] == "maqueta"
         assert p["mockup_path"] == "maquetas/pepe/index.html"
+
+
+class TestBugsDeDatos:
+    def test_cola_desempata_por_la_auditoria_mas_nueva(self, con):
+        """run_at tiene precisión de segundo: re-auditar dos veces seguidas
+        dejaba a suerte cuál de las dos mandaba."""
+        bid = _alta(con)
+        mismo = "2026-08-27T10:00:00+00:00"
+        _audita(con, bid, track="web_obsoleta", score=80, run_at=mismo)
+        _audita(con, bid, track="web_ok", score=10, run_at=mismo)
+        assert con.execute("SELECT COUNT(*) c FROM v_cola").fetchone()["c"] == 0
+
+    def test_connect_respeta_db_path_en_caliente(self, tmp_path, monkeypatch):
+        """El valor por defecto se evaluaba al importar, así que no había
+        forma de redirigir la BD sin reimportar el módulo."""
+        destino = tmp_path / "redirigida.db"
+        monkeypatch.setattr(db, "DB_PATH", destino)
+        db.init().close()
+        assert destino.exists()
