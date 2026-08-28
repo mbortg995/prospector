@@ -78,6 +78,15 @@ CREATE TABLE IF NOT EXISTS place_lookups (
     cerrado      INTEGER DEFAULT 0   -- Google lo da por cerrado definitivamente
 );
 
+-- Material para escribir la maqueta: su web actual, o la archivada si el
+-- dominio está muerto. Se guarda para no volver a descargarla en cada intento.
+CREATE TABLE IF NOT EXISTS contenido (
+    business_id INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+    obtenido_at TEXT,
+    fuente      TEXT,   -- web | wayback | NULL si no hay nada que raspar
+    datos_json  TEXT
+);
+
 -- Nunca más volver a molestar a estos. Se respeta en todos los listados.
 CREATE TABLE IF NOT EXISTS exclusions (
     key        TEXT PRIMARY KEY,  -- dominio, teléfono o "osm:node/123"

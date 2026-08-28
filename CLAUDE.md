@@ -32,6 +32,9 @@ Funciona y está probado con datos simulados:
 - `audit.py` — descarga la web, extrae señales, puntúa 0-100 y asigna carril.
 - `db.py` + `schema.sql` — SQLite. `discover` re-ejecutado nunca pisa el estado
   del pipeline.
+- `contenido.py` — material para las maquetas: su web, o la archivada en
+  Wayback si el dominio está muerto. Pensado para webs reales, no ideales:
+  rescata líneas sueltas y detecta las pintadas con JavaScript.
 - `places.py` — relleno de huecos con Google Places. La clave vive en el
   Llavero de macOS (`prospector clave --guardar`); `GOOGLE_PLACES_API_KEY`
   manda sobre él si está. Nunca en fichero, nunca en el historial, nunca
@@ -41,8 +44,8 @@ Funciona y está probado con datos simulados:
 - `panel.py` + `panel.html` — panel local en 127.0.0.1, solo stdlib (`http.server`),
   sin framework ni CDN. Tres pestañas: Cola, Comercial (leads en marcha) y
   Archivo. Lista blanca de tareas lanzables y de etapas escribibles.
-- `cli.py` — comandos: `init discover enriquecer cerrados normalizar audit etapa panel clave cola ficha brief maqueta log excluir embudo export`
-- `tests/` — 286 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
+- `cli.py` — comandos: `init discover enriquecer cerrados normalizar audit contenido etapa panel clave cola ficha brief maqueta log excluir embudo export`
+- `tests/` — 323 tests, con cortafuegos que hace fallar cualquier salida a la red. CI en Actions (3.11/3.12/3.13),
   ruff en verde. Antes de tocar scoring o el parser, `make test`.
 
 **Censo real hecho el 2026-08-27.** Por comarca: 601 elementos crudos → 519
@@ -64,12 +67,17 @@ negocios → **95 auditables**, 44 de ellos sin web. Ver "Pendiente".
    - Requisito en ambos casos: **HTML autocontenido** (CSS inline, imágenes en
      base64, sin CDN) para que funcione sin cobertura en un polígono industrial.
    - La pantalla que vende es el **antes/después lado a lado en móvil**.
-4. **Barrido en rejilla con Places** para encontrar negocios que OSM ni
+4. **Generador de maquetas**: decidido que sea **personalizada para cada
+   negocio** (API), con botón en la ficha del panel más tanda nocturna vía
+   launchd. Requisito duro: HTML autocontenido, sin CDN. `contenido.py` ya
+   reúne el material.
+
+5. **Barrido en rejilla con Places** para encontrar negocios que OSM ni
    siquiera tiene censados (el caso de Llíria: 40 negocios en todo OSM para
    23.000 habitantes). Más caro que `enriquecer` y necesita clave de negocio
    nueva en el esquema (`place_id` como identidad alternativa a `osm_id`).
 
-5. **Scraper de contenido** del negocio (textos, servicios, horarios) para
+6. **Scraper de contenido** del negocio (textos, servicios, horarios) para
    alimentar la maqueta. Aún no existe.
 
 ## Convenciones

@@ -207,6 +207,65 @@ class TestBugsDelPipeline:
         assert lineas[0].startswith("id,name,category")
 
 
+class TestContenido:
+    def _args(self, **kw):
+        base = dict(id=None, limite=25, espera=0, rehacer=False)
+        return argparse.Namespace(**{**base, **kw})
+
+    def test_guarda_el_material_y_su_fuente(self, bd, monkeypatch):
+        bid = _negocio(bd, tlf="+34961234567", web="https://ejemplo.es")
+        db.save_audit(bd, bid, {"track": "web_obsoleta", "score": 60, "signals": []})
+        bd.commit()
+        monkeypatch.setattr(climod.contenido, "de_la_web",
+                            lambda url: {"fuente": "web", "titulo": "Panadería Pepe"})
+        climod.cmd_contenido(self._args())
+        fila = bd.execute("SELECT * FROM contenido WHERE business_id=?", (bid,)).fetchone()
+        assert fila["fuente"] == "web"
+        assert json.loads(fila["datos_json"])["material"]["titulo"] == "Panadería Pepe"
+
+    def test_un_negocio_sin_web_se_guarda_igual(self, bd):
+        """Sin material también hay ficha: nombre, sector y municipio bastan."""
+        bid = _negocio(bd, tlf="+34961234567")
+        climod.cmd_contenido(self._args())
+        fila = bd.execute("SELECT * FROM contenido WHERE business_id=?", (bid,)).fetchone()
+        assert fila["fuente"] is None
+        assert json.loads(fila["datos_json"])["nombre"] == "Panadería Pepe"
+
+    def test_no_lo_rehace_si_ya_lo_tiene(self, bd, monkeypatch):
+        _negocio(bd, tlf="+34961234567")
+        climod.cmd_contenido(self._args())
+        llamadas = []
+        monkeypatch.setattr(climod.contenido, "reunir",
+                            lambda *a, **k: llamadas.append(1) or {"obtenido_at": "x"})
+        climod.cmd_contenido(self._args())
+        assert llamadas == []
+
+    def test_rehacer_lo_fuerza(self, bd, monkeypatch):
+        _negocio(bd, tlf="+34961234567")
+        climod.cmd_contenido(self._args())
+        climod.cmd_contenido(self._args(rehacer=True))
+        assert bd.execute("SELECT COUNT(*) FROM contenido").fetchone()[0] == 1
+
+    def test_los_descartados_no_gastan_descargas(self, bd):
+        bid = _negocio(bd, tlf="+34961234567")
+        db.set_stage(bd, bid, "descartado")
+        bd.commit()
+        climod.cmd_contenido(self._args())
+        assert bd.execute("SELECT COUNT(*) FROM contenido").fetchone()[0] == 0
+
+    def test_sin_via_de_contacto_no_se_prepara(self, bd):
+        """No tiene sentido reunir material de quien no puedes llamar."""
+        _negocio(bd)  # sin teléfono ni email
+        climod.cmd_contenido(self._args())
+        assert bd.execute("SELECT COUNT(*) FROM contenido").fetchone()[0] == 0
+
+    def test_por_id_concreto(self, bd):
+        _negocio(bd, oid=1, nombre="Uno", tlf="+34961234567")
+        b2 = _negocio(bd, oid=2, nombre="Dos", tlf="+34961234568")
+        climod.cmd_contenido(self._args(id=b2))
+        assert [r[0] for r in bd.execute("SELECT business_id FROM contenido")] == [b2]
+
+
 class TestEtapas:
     def test_aparcado_no_bloquea_avanzar_despues(self, bd):
         """Aparcar es una pausa, no un paso atrás."""

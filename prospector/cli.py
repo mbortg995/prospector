@@ -10,7 +10,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-from . import db, places
+from . import contenido, db, places
 from .audit import auditar
 from .discover import (
     COMARCA,
@@ -177,6 +177,44 @@ WHERE b.is_chain = 0
   AND NOT EXISTS (SELECT 1 FROM exclusions e
                   WHERE e.key = 'osm:' || b.osm_type || '/' || b.osm_id)
 """
+
+
+def cmd_contenido(a):
+    """Reúne el material con el que escribir la maqueta de cada negocio."""
+    con = db.init()  # asegura la tabla en BD creadas antes
+    if a.id:
+        filas = [negocio_o_salir(con, a.id)]
+    else:
+        q = """SELECT b.*, a.track FROM businesses b
+               JOIN pipeline p ON p.business_id = b.id
+               LEFT JOIN audits a ON a.id = (
+                   SELECT id FROM audits WHERE business_id = b.id
+                   ORDER BY run_at DESC, id DESC LIMIT 1)
+               WHERE b.is_chain = 0 AND p.stage NOT IN ('descartado', 'perdido')
+                 AND (b.phone IS NOT NULL OR b.email IS NOT NULL)"""
+        if not a.rehacer:
+            q += " AND NOT EXISTS (SELECT 1 FROM contenido c WHERE c.business_id = b.id)"
+        q += " ORDER BY a.score DESC LIMIT ?"
+        filas = con.execute(q, (a.limite,)).fetchall()
+
+    if not filas:
+        print("Nada que reunir. Todos tienen material ya.")
+        return
+    print(f"Reuniendo material de {len(filas)}...", file=sys.stderr)
+    fuentes = Counter()
+    for i, r in enumerate(filas, 1):
+        if i > 1:
+            time.sleep(a.espera)  # su web y la de Wayback son ajenas
+        d = dict(r)
+        datos = contenido.reunir(d, d.get("track"))
+        db.save_contenido(con, r["id"], datos)
+        con.commit()
+        fuente = (datos.get("material") or {}).get("fuente") or "sin material"
+        fuentes[fuente] += 1
+        print(f"  #{r['id']:>4} {r['name'][:32]:<32} {fuente}")
+    print()
+    for f, n in fuentes.most_common():
+        print(f"  {f:<16} {n:>4}")
 
 
 def cmd_etapa(a):
@@ -549,6 +587,13 @@ def main():
     p.add_argument("--espera", type=float, default=1.0,
                    help="segundos entre negocios")
     p.set_defaults(f=cmd_audit)
+
+    p = sub.add_parser("contenido", help="reunir el material para las maquetas")
+    p.add_argument("id", type=int, nargs="?")
+    p.add_argument("--limite", type=int, default=25)
+    p.add_argument("--espera", type=float, default=1.0)
+    p.add_argument("--rehacer", action="store_true")
+    p.set_defaults(f=cmd_contenido)
 
     p = sub.add_parser("etapa", help="mover un negocio de etapa")
     p.add_argument("id", type=int)
