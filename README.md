@@ -87,6 +87,33 @@ python3 -m prospector.cli excluir 51 --reason "pidió no volver a llamar"
 python3 -m prospector.cli embudo
 ```
 
+## Material para las maquetas
+
+```bash
+prospector contenido --limite 25
+```
+
+Una maqueta genérica no vende: el dueño tiene que reconocer su negocio en la
+pantalla. `contenido` reúne con qué escribirla, según el carril:
+
+- **`web_obsoleta`**: de su web actual.
+- **`web_caida`**: de Wayback. Su web sigue en el archivo aunque el dominio
+  esté muerto, y además es exactamente lo que hay que enseñar en el
+  antes/después.
+- **`sin_web`**: no hay nada que raspar. Quedan el nombre, el sector, el
+  municipio y lo que trajo Places.
+
+El extractor está hecho para lo que se encuentra de verdad, no para HTML
+ideal. Guarda las **líneas sueltas** además de los párrafos, porque muchas de
+estas webs son una sola página donde la dirección del polígono y un
+`(c) 2011` son todo el contenido. Y marca las **pintadas con JavaScript**
+(mucho HTML, nada de texto): ahí no hay nada que leer, y decirlo es mejor que
+devolver una ficha vacía sin explicación.
+
+El campo `aprovechable` dice si hay con qué escribir algo suyo. En la primera
+pasada real salieron 8 de 12; los otros cuatro eran un negocio sin web, un
+dominio ocupado, una web viva casi vacía y una pintada con JavaScript.
+
 ## Las etapas
 
 ```

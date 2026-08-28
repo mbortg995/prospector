@@ -145,3 +145,14 @@ def rellenar_contacto(con: sqlite3.Connection, business_id: int,
     if puestos:
         con.execute("UPDATE businesses SET last_seen=? WHERE id=?", (now(), business_id))
     return puestos
+
+
+def save_contenido(con: sqlite3.Connection, business_id: int, datos: dict) -> None:
+    import json
+    con.execute(
+        """INSERT OR REPLACE INTO contenido
+           (business_id, obtenido_at, fuente, datos_json) VALUES (?,?,?,?)""",
+        (business_id, datos["obtenido_at"],
+         (datos.get("material") or {}).get("fuente"),
+         json.dumps(datos, ensure_ascii=False)),
+    )
