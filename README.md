@@ -3,6 +3,23 @@
 Censo de negocios cercanos → auditoría de obsolescencia web → cola priorizada → seguimiento comercial.
 Todo en un fichero SQLite. Sin servidores, sin cuentas, sin planes free.
 
+## El canal: teléfono y visita, nunca email frío
+
+En España el envío de comunicaciones comerciales no solicitadas por correo
+electrónico está **prohibido** por el art. 21 de la LSSICE salvo relación
+contractual previa. Aplica aunque el destinatario sea una empresa y aunque la
+dirección sea el `info@` que ellos mismos publican en su web.
+
+Por eso el canal es teléfono y visita presencial con la maqueta en la tablet, y
+la herramienta **no tiene ni tendrá envío de correo**. El campo `email` se
+guarda solo como dato de contacto para cuando ya exista conversación previa.
+
+Es la restricción que da forma a todo lo demás: si el contacto va a ser una
+llamada y un desplazamiento, cada lead cuesta tiempo real, y entonces la
+prioridad ya no es reunir muchos sino ordenar bien los pocos. De ahí los
+carriles, los pesos, el emparejamiento estricto de teléfonos y la limpieza de
+negocios cerrados.
+
 ## Instalación
 
 macOS bloquea `pip install` global (PEP 668), así que venv:
@@ -297,3 +314,28 @@ Los tests no salen a la red: el parser de Overpass se prueba con respuestas de
 ejemplo, la auditoría con dobles de `_fetch` y `_wayback_last`, y el CLI de punta
 a punta contra una BD temporal vía `PROSPECTOR_DB`. CI en GitHub Actions sobre
 Python 3.11, 3.12 y 3.13.
+
+## Cómo está construido
+
+Desarrollado en solitario con **Claude Code** como par de programación: yo defino
+el problema, las restricciones y el criterio; la IA escribe y refactoriza contra
+ese contrato. Lo que hace que eso produzca algo fiable y no un montón de código
+plausible:
+
+- **`CLAUDE.md`** fija las decisiones no negociables antes de escribir código,
+  empezando por la de la LSSICE de arriba. Una regla escrita ahí no se
+  renegocia tarea a tarea.
+- **Las restricciones vienen del mundo real, no del código.** Overpass es un
+  servicio comunitario gratuito, Places se paga por consulta y un teléfono mal
+  asignado hace que llames a otro negocio. Cada una de las tres deja su marca
+  en el diseño: una sola consulta con teselado solo al fallar, cache de las
+  consultas pagadas incluso cuando no casan, y emparejamiento donde nunca basta
+  la cercanía ni el nombre por separado.
+- **Los tests no salen a la red** —hay un cortafuegos que hace fallar cualquier
+  intento— así que el parser se prueba contra respuestas reales volcadas con
+  `--guardar-json`. Afinar el criterio no cuesta ni una consulta.
+- **Todo entra por rama y pull request**, con CI en Python 3.11, 3.12 y 3.13
+  más `ruff`.
+- **Ninguna decisión de peso se toma a ojo.** Los números del README salieron de
+  pasadas reales: 8 de 12 fichas aprovechables, 3 de 28 negocios salvados por
+  el listón estricto de cerrados, 95 de 519 con vía de contacto en OSM.
